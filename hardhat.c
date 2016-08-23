@@ -61,7 +61,7 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwd
 
 	Py_END_ALLOW_THREADS
 
-	Py_XDECREF(decoded_filename);
+	Py_DecRef(decoded_filename);
 
 	if(hh) {
 		self = (Hardhat *)subtype->tp_alloc(subtype, 0);
