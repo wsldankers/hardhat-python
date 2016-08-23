@@ -1,0 +1,7 @@
+#! /usr/bin/make -f
+
+%:
+	exec dh $@
+
+override_dh_builddeb:
+	exec dh_builddeb -- -Zxz -z9

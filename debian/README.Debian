@@ -1,0 +1,6 @@
+hardhat-python
+--------------
+
+Python 3 bindings for the hardhat library.
+
+ -- Wessel Dankers <wsl@fruit.je>  Tue, 23 Aug 2016 16:46:30 +0200

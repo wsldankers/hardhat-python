@@ -1,0 +1,14 @@
+This package was debianized by Wessel Dankers <wsl@fruit.je> on
+Tue, 23 Aug 2016 16:46:30 +0200.
+
+It can be downloaded from http://www.fruit.je/download/fruitbak/
+Version control is at https://git.fruit.je/hardhat-python
+
+Upstream Author: Wessel Dankers <wsl@fruit.je>
+
+Copyright: 2016 Wessel Dankers <wsl@fruit.je>
+
+License: GPL version 3 or any later version.
+
+The Debian packaging is Copyright © 2016: Wessel Dankers <wsl@fruit.je>
+and is licensed under the GPL, see '/usr/share/common-licenses/GPL-3'.

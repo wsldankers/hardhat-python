@@ -1,0 +1,15 @@
+Source: hardhat-python
+Section: python
+Priority: extra
+Maintainer: Wessel Dankers <wsl@fruit.je>
+Build-Depends: debhelper (>= 7), libhardhat-dev, python3.4-dev | python3-dev
+Standards-Version: 3.7.2
+
+Package: python3-hardhat
+Architecture: any
+Depends: ${python:Depends}, ${shlibs:Depends}
+Description: Write-once database with filesystem semantics
+ Store files in a write-once database. Keys can be browsed by
+ filesystem-like operations.
+ .
+ This package provides python3 bindings for the library.
