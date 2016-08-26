@@ -97,25 +97,41 @@ static PyObject *hardhat_module_exception(const char *name) {
 
 static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds) {
 	Hardhat *self = NULL;
-	PyObject *filename, *decoded_filename;
+	PyObject *filename_object, *decoded_filename;
+	const char *filename;
 	hardhat_t *hh;
 
-	if(!PyArg_ParseTuple(args, "O:new", &filename))
+	if(!PyArg_ParseTuple(args, "O:new", &filename_object))
 		return NULL;
 
-	if(!PyUnicode_FSConverter(filename, &decoded_filename))
+	if(PyUnicode_Check(filename_object)) {
+		if(!PyUnicode_FSConverter(filename_object, &decoded_filename))
+			return NULL;
+	} else if(PyBytes_Check(filename_object)) {
+		decoded_filename = filename_object;
+		Py_IncRef(decoded_filename);
+	} else {
+		decoded_filename = PyBytes_FromObject(filename_object);
+		if(!decoded_filename)
+			return NULL;
+	}
+
+	filename = PyBytes_AsString(decoded_filename);
+	if(!filename) {
+		Py_DecRef(decoded_filename);
 		return NULL;
+	}
 
 	Py_BEGIN_ALLOW_THREADS
 
-	hh = hardhat_open(PyBytes_AsString(decoded_filename));
+	hh = hardhat_open(filename);
 
 	Py_END_ALLOW_THREADS
 
 	Py_DecRef(decoded_filename);
 
 	if(hh) {
-		self = (Hardhat *)subtype->tp_alloc(subtype, 0);
+		self = PyObject_New(Hardhat, subtype);
 		if(self) {
 			self->magic = HARDHAT_MAGIC;
 			self->hh = hh;
@@ -123,9 +139,9 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwd
 	} else {
 		if(errno == EPROTO) {
 			PyErr_Format(hardhat_module_exception(HARDHAT_FILE_FORMAT_ERROR),
-				"not a hardhat file: '%S'", filename);
+				"not a hardhat file: '%S'", filename_object);
 		} else {
-			PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, filename);
+			PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, filename_object);
 		}
 	}
 
@@ -188,7 +204,7 @@ static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject) {
 
 	if(keybuffer.len > UINT16_MAX) {
 		PyBuffer_Release(&keybuffer);
-		return PyErr_SetNone(PyExc_KeyError), NULL;
+		return PyErr_String(PyExc_KeyError, "supplied key too long"), NULL;
 	}
 
 	Py_BEGIN_ALLOW_THREADS
@@ -201,7 +217,7 @@ static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject) {
 		if(c->data) {
 			cursor = PyObject_New(HardhatCursor, &HardhatCursor_type);
 			if(cursor) {
-				Py_IncRef((PyObject *)self);
+				Py_IncRef(&self->ob_base);
 				cursor->hardhat = self;
 				cursor->hhc = c;
 				cursor->magic = HARDHAT_CURSOR_MAGIC;
@@ -214,7 +230,7 @@ static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject) {
 		PyErr_SetFromErrno(PyExc_OSError);
 	}
 
-	return (PyObject *)cursor;
+	return &cursor->ob_base;
 }
 
 static PyObject *Hardhat_getitem(Hardhat *self, PyObject *keyobject) {
@@ -222,8 +238,8 @@ static PyObject *Hardhat_getitem(Hardhat *self, PyObject *keyobject) {
 	HardhatCursor *cursor = (HardhatCursor *)Hardhat_cursor(self, keyobject);
 	if(!cursor)
 		return NULL;
-	view = PyMemoryView_FromObject((PyObject *)cursor);
-	Py_DecRef((PyObject *)cursor);
+	view = PyMemoryView_FromObject(&cursor->ob_base);
+	Py_DecRef(&cursor->ob_base);
 	return view;
 }
 
@@ -305,7 +321,7 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
 		if(hhc->data)
-			return PyBuffer_FillInfo(buffer, (PyObject *)self->hardhat, (char *)hhc->data, hhc->datalen, 1, flags);
+			return PyBuffer_FillInfo(buffer, &self->hardhat.ob_base, (char *)hhc->data, hhc->datalen, 1, flags);
 		else
 			PyErr_SetString(PyExc_BufferError, "HardhatCursor object doesn't currently point at an entry");
 	} else {
@@ -318,7 +334,7 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 static void HardhatCursor_dealloc(HardhatCursor *self) {
 	if(HardhatCursor_check(self)) {
 		self->magic = 0;
-		Py_DecRef((PyObject *)self->hardhat);
+		Py_DecRef(&self->hardhat.ob_base);
 	}
 }
 
@@ -416,7 +432,7 @@ PyMODINIT_FUNC PyInit_hardhat(void) {
 		return NULL;
 	PyObject *module = PyModule_Create(&hardhat_module);
 	if(module)
-		PyModule_AddObject(module, "Hardhat", (PyObject *)&Hardhat_type);
+		PyModule_AddObject(module, "Hardhat", &Hardhat_type.ob_base);
 	// ensure this exists:
 	hardhat_module_create_exception(module, HARDHAT_FILE_FORMAT_ERROR);
 	return module;
