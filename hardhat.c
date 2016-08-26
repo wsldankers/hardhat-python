@@ -204,7 +204,7 @@ static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject) {
 
 	if(keybuffer.len > UINT16_MAX) {
 		PyBuffer_Release(&keybuffer);
-		return PyErr_String(PyExc_KeyError, "supplied key too long"), NULL;
+		return PyErr_SetString(PyExc_KeyError, "supplied key too long"), NULL;
 	}
 
 	Py_BEGIN_ALLOW_THREADS
@@ -321,7 +321,7 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
 		if(hhc->data)
-			return PyBuffer_FillInfo(buffer, &self->hardhat.ob_base, (char *)hhc->data, hhc->datalen, 1, flags);
+			return PyBuffer_FillInfo(buffer, &self->hardhat->ob_base, (char *)hhc->data, hhc->datalen, 1, flags);
 		else
 			PyErr_SetString(PyExc_BufferError, "HardhatCursor object doesn't currently point at an entry");
 	} else {
@@ -334,7 +334,7 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 static void HardhatCursor_dealloc(HardhatCursor *self) {
 	if(HardhatCursor_check(self)) {
 		self->magic = 0;
-		Py_DecRef(&self->hardhat.ob_base);
+		Py_DecRef(&self->hardhat->ob_base);
 	}
 }
 
@@ -432,7 +432,7 @@ PyMODINIT_FUNC PyInit_hardhat(void) {
 		return NULL;
 	PyObject *module = PyModule_Create(&hardhat_module);
 	if(module)
-		PyModule_AddObject(module, "Hardhat", &Hardhat_type.ob_base);
+		PyModule_AddObject(module, "Hardhat", &Hardhat_type.ob_base.ob_base);
 	// ensure this exists:
 	hardhat_module_create_exception(module, HARDHAT_FILE_FORMAT_ERROR);
 	return module;
