@@ -18,6 +18,8 @@ typedef struct {
 	Hardhat *hardhat;
 	hardhat_cursor_t *hhc;
 	bool recursive;
+	bool keys;
+	bool values;
 } HardhatCursor;
 
 typedef struct {
@@ -35,6 +37,7 @@ static PyTypeObject HardhatMaker_type;
 #define HARDHAT_VALUE_MAGIC (UINT64_C(0xAAE89394CECC3DD8))
 #define HARDHAT_MAKER_MAGIC (UINT64_C(0x5236CC4EFF9CAE19))
 
+#define HARDHAT_INTERNAL_ERROR "InternalError"
 #define HARDHAT_FILE_FORMAT_ERROR "FileFormatError"
 
 static struct PyModuleDef hardhat_module;
@@ -148,29 +151,18 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwd
 	return self;
 }
 
-static void Hardhat_finalize(Hardhat *self) {
+static void Hardhat_dealloc(Hardhat *self) {
 	if(Hardhat_check(self)) {
 		self->magic = 0;
 		Py_BEGIN_ALLOW_THREADS
 		hardhat_close(self->hh);
 		Py_END_ALLOW_THREADS
 	}
-}
 
-#ifndef Py_TPFLAGS_HAVE_FINALIZE
-static void Hardhat_dealloc(Hardhat *self) {
-	Hardhat_finalize(self);
 	PyObject_Del(self);
 }
-#endif
 
 // Hardhat object methods
-
-static PyObject *Hardhat_find(Hardhat *self, PyObject *args) {
-	if(!PyArg_ParseTuple(args, ":find"))
-		return NULL;
-	Py_RETURN_NONE;
-}
 
 static bool Hardhat_object_to_buffer(PyObject *obj, Py_buffer *buffer) {
 	char *str;
@@ -194,7 +186,7 @@ static bool Hardhat_object_to_buffer(PyObject *obj, Py_buffer *buffer) {
 	return true;
 }
 
-static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject) {
+static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject, bool recursive, bool keys, bool values) {
 	Py_buffer keybuffer;
 	hardhat_cursor_t *c;
 	HardhatCursor *cursor = NULL;
@@ -214,31 +206,42 @@ static PyObject *Hardhat_cursor(Hardhat *self, PyObject *keyobject) {
 	PyBuffer_Release(&keybuffer);
 
 	if(c) {
-		if(c->data) {
-			cursor = PyObject_New(HardhatCursor, &HardhatCursor_type);
-			if(cursor) {
-				Py_IncRef(&self->ob_base);
-				cursor->hardhat = self;
-				cursor->hhc = c;
-				cursor->magic = HARDHAT_CURSOR_MAGIC;
-			}
-		} else {
-			PyErr_Format(PyExc_KeyError, "'%S'", keyobject);
+		cursor = PyObject_New(HardhatCursor, &HardhatCursor_type);
+		if(cursor) {
+			Py_IncRef(&self->ob_base);
+			cursor->hardhat = self;
+			cursor->hhc = c;
+			cursor->recursive = recursive;
+			cursor->keys = keys;
+			cursor->values = values;
+			cursor->magic = HARDHAT_CURSOR_MAGIC;
+			return &cursor->ob_base;
 		}
 		hardhat_cursor_free(c);
 	} else {
 		PyErr_SetFromErrno(PyExc_OSError);
 	}
 
-	return &cursor->ob_base;
+	return NULL;
+}
+
+static PyObject *Hardhat_ls(Hardhat *self, PyObject *keyobject) {
+	return (PyObject *)Hardhat_cursor(self, keyobject, false, true, true);
+}
+
+static PyObject *Hardhat_find(Hardhat *self, PyObject *keyobject) {
+	return (PyObject *)Hardhat_cursor(self, keyobject, true, true, true);
 }
 
 static PyObject *Hardhat_getitem(Hardhat *self, PyObject *keyobject) {
-	PyObject *view;
-	HardhatCursor *cursor = (HardhatCursor *)Hardhat_cursor(self, keyobject);
+	PyObject *view = NULL;
+	HardhatCursor *cursor = (HardhatCursor *)Hardhat_cursor(self, keyobject, false, false, true);
 	if(!cursor)
 		return NULL;
-	view = PyMemoryView_FromObject(&cursor->ob_base);
+	if(cursor->hhc->data)
+		view = PyMemoryView_FromObject(&cursor->ob_base);
+	else
+		PyErr_Format(PyExc_KeyError, "'%S'", keyobject);
 	Py_DecRef(&cursor->ob_base);
 	return view;
 }
@@ -250,7 +253,8 @@ static PyMappingMethods Hardhat_as_mapping = {
 };
 
 static PyMethodDef Hardhat_methods[] = {
-	{"find", (PyCFunction)Hardhat_find, METH_VARARGS, "return a recursive cursor"},
+	{"ls", (PyCFunction)Hardhat_ls, METH_O, "return a non-recursive cursor"},
+	{"find", (PyCFunction)Hardhat_find, METH_O, "return a recursive cursor"},
 	{NULL}
 };
 
@@ -259,11 +263,7 @@ static PyTypeObject Hardhat_type = {
 	"hardhat.Hardhat",                  // tp_name
 	sizeof(Hardhat),                    // tp_basicsize
 	0,                                  // tp_itemsize
-#ifdef Py_TPFLAGS_HAVE_FINALIZE
-	0,                                  // tp_dealloc
-#else
 	(destructor)Hardhat_dealloc,        // tp_dealloc
-#endif
 	0,                                  // tp_print
 	0,                                  // tp_getattr
 	0,                                  // tp_setattr
@@ -278,9 +278,6 @@ static PyTypeObject Hardhat_type = {
 	0,                                  // tp_getattro
 	0,                                  // tp_setattro
 	0,                                  // tp_as_buffer
-#ifdef Py_TPFLAGS_HAVE_FINALIZE
-	Py_TPFLAGS_HAVE_FINALIZE |
-#endif
 	Py_TPFLAGS_DEFAULT,                 // tp_flags
 	0,                                  // tp_doc
 	0,                                  // tp_traverse
@@ -309,9 +306,6 @@ static PyTypeObject Hardhat_type = {
 	0,                                  // tp_weaklist
 	0,                                  // tp_del
 	0,                                  // tp_version_tag
-#ifdef Py_TPFLAGS_HAVE_FINALIZE
-	(destructor)Hardhat_finalize,       // tp_finalize;
-#endif
 };
 
 // Hardhat object methods
@@ -329,6 +323,45 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 	}
 	buffer->obj = NULL;
 	return -1;
+}
+
+static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
+	hardhat_cursor_t *hhc;
+	PyObject *keyobject, *valueobject, *tupleobject;
+	if(HardhatCursor_check(self)) {
+		hhc = self->hhc;
+		if(hardhat_fetch(hhc, self->recursive)) {
+			if(self->keys) {
+				keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
+				if(!keyobject)
+					return NULL;
+				if(self->values) {
+					valueobject = PyMemoryView_FromObject(&self->ob_base);
+					if(valueobject) {
+						tupleobject = PyTuple_Pack(2, keyobject, valueobject);
+						Py_DecRef(valueobject);
+					} else {
+						tupleobject = NULL;
+					}
+					Py_DecRef(keyobject);
+					return tupleobject;
+				} else {
+					return keyobject;
+				}
+			} else {
+				if(self->values)
+					return PyMemoryView_FromObject(&self->ob_base);
+				else
+					return PyErr_SetString(hardhat_module_exception(HARDHAT_FILE_FORMAT_ERROR),
+						"internal error in HardhatCursor_iternext()"), NULL;
+			}
+		} else {
+			return NULL;
+		}
+	} else {
+		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
+		return NULL;
+	}
 }
 
 static void HardhatCursor_dealloc(HardhatCursor *self) {
@@ -349,54 +382,54 @@ static PyBufferProcs HardhatCursor_as_buffer = {
 
 static PyTypeObject HardhatCursor_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"hardhat.HardhatCursor",            // tp_name
-	sizeof(HardhatCursor),              // tp_basicsize
-	0,                                  // tp_itemsize
-	(destructor)HardhatCursor_dealloc,  // tp_dealloc
-	0,                                  // tp_print
-	0,                                  // tp_getattr
-	0,                                  // tp_setattr
-	0,                                  // tp_reserved
-	0,                                  // tp_repr
-	0,                                  // tp_as_number
-	0,                                  // tp_as_sequence
-	0,                                  // tp_as_mapping
-	0,                                  // tp_hash
-	0,                                  // tp_call
-	0,                                  // tp_str
-	0,                                  // tp_getattro
-	0,                                  // tp_setattro
-	&HardhatCursor_as_buffer,           // tp_as_buffer
-	Py_TPFLAGS_DEFAULT,                 // tp_flags
-	0,                                  // tp_doc
-	0,                                  // tp_traverse
-	0,                                  // tp_clear
-	0,                                  // tp_richcompare
-	0,                                  // tp_weaklistoffset
-	0,                                  // tp_iter
-	0,                                  // tp_iternext
-	HardhatCursor_methods,              // tp_methods
-	0,                                  // tp_members
-	0,                                  // tp_getset
-	0,                                  // tp_base
-	0,                                  // tp_dict
-	0,                                  // tp_descr_get
-	0,                                  // tp_descr_set
-	0,                                  // tp_dictoffset
-	0,                                  // tp_init
-	0,                                  // tp_alloc
-	0,                                  // tp_new
-	0,                                  // tp_free
-	0,                                  // tp_is_gc
-	0,                                  // tp_bases
-	0,                                  // tp_mro
-	0,                                  // tp_cache
-	0,                                  // tp_subclasses
-	0,                                  // tp_weaklist
-	0,                                  // tp_del
-	0,                                  // tp_version_tag
+	"hardhat.HardhatCursor",                   // tp_name
+	sizeof(HardhatCursor),                     // tp_basicsize
+	0,                                         // tp_itemsize
+	(destructor)HardhatCursor_dealloc,         // tp_dealloc
+	0,                                         // tp_print
+	0,                                         // tp_getattr
+	0,                                         // tp_setattr
+	0,                                         // tp_reserved
+	0,                                         // tp_repr
+	0,                                         // tp_as_number
+	0,                                         // tp_as_sequence
+	0,                                         // tp_as_mapping
+	0,                                         // tp_hash
+	0,                                         // tp_call
+	0,                                         // tp_str
+	0,                                         // tp_getattro
+	0,                                         // tp_setattro
+	&HardhatCursor_as_buffer,                  // tp_as_buffer
+	Py_TPFLAGS_DEFAULT,                        // tp_flags
+	0,                                         // tp_doc
+	0,                                         // tp_traverse
+	0,                                         // tp_clear
+	0,                                         // tp_richcompare
+	0,                                         // tp_weaklistoffset
+	PyObject_SelfIter,                         // tp_iter
+	(iternextfunc)HardhatCursor_iternext,      // tp_iternext
+	HardhatCursor_methods,                     // tp_methods
+	0,                                         // tp_members
+	0,                                         // tp_getset
+	0,                                         // tp_base
+	0,                                         // tp_dict
+	0,                                         // tp_descr_get
+	0,                                         // tp_descr_set
+	0,                                         // tp_dictoffset
+	0,                                         // tp_init
+	0,                                         // tp_alloc
+	0,                                         // tp_new
+	0,                                         // tp_free
+	0,                                         // tp_is_gc
+	0,                                         // tp_bases
+	0,                                         // tp_mro
+	0,                                         // tp_cache
+	0,                                         // tp_subclasses
+	0,                                         // tp_weaklist
+	0,                                         // tp_del
+	0,                                         // tp_version_tag
 #ifdef Py_TPFLAGS_HAVE_FINALIZE
-	0,                                  // tp_finalize;
+	0,                                         // tp_finalize;
 #endif
 };
 
@@ -434,6 +467,7 @@ PyMODINIT_FUNC PyInit_hardhat(void) {
 	if(module)
 		PyModule_AddObject(module, "Hardhat", &Hardhat_type.ob_base.ob_base);
 	// ensure this exists:
+	hardhat_module_create_exception(module, HARDHAT_INTERNAL_ERROR);
 	hardhat_module_create_exception(module, HARDHAT_FILE_FORMAT_ERROR);
 	return module;
 }
