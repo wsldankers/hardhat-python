@@ -428,21 +428,29 @@ static PyTypeObject HardhatCursor_type = {
 	0,                                         // tp_weaklist
 	0,                                         // tp_del
 	0,                                         // tp_version_tag
-#ifdef Py_TPFLAGS_HAVE_FINALIZE
-	0,                                         // tp_finalize;
-#endif
 };
 
 // Hardhat module functions
 
-static PyObject *hardhat_module_normalize(PyObject *self, PyObject *args) {
-	if(!PyArg_ParseTuple(args, ":derp"))
+static PyObject *hardhat_module_normalize(PyObject *self, PyObject *obj) {
+	Py_buffer buffer;
+	PyObject *result;
+
+	if(!Hardhat_object_to_buffer(obj, &buffer))
 		return NULL;
-	Py_RETURN_NONE;
+
+	result = PyBytes_FromStringAndSize(NULL, buffer.len);
+	if(result)
+		_PyBytes_Resize(&result,
+			hardhat_normalize(PyBytes_AS_STRING(result), buffer.buf, buffer.len));
+
+	PyBuffer_Release(&buffer);
+
+	return result;
 }
 
 static PyMethodDef hardhat_module_functions[] = {
-	{"normalize", hardhat_module_normalize, METH_VARARGS, "return a normalized bytes object"},
+	{"normalize", hardhat_module_normalize, METH_O, "return a normalized bytes object"},
 	{NULL}
 };
 
