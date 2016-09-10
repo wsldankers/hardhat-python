@@ -27,9 +27,9 @@ typedef struct {
 typedef struct {
 	PyObject_HEAD
 	uint64_t magic;
-	hardhat_maker_t *hhm;
-	// this lock protects the object behind hhm and nothing else:
+	// this lock protects everything below:
 	PyThread_type_lock lock;
+	hardhat_maker_t *hhm;
 } HardhatMaker;
 
 static PyTypeObject Hardhat_type;
@@ -46,6 +46,12 @@ static PyTypeObject HardhatMaker_type;
 #define HARDHAT_MAKER_ERROR hardhat_module_exception("MakerError", NULL)
 #define HARDHAT_MAKER_FATAL_ERROR hardhat_module_exception("MakerFatalError", "MakerError")
 #define HARDHAT_MAKER_VALUE_ERROR hardhat_module_exception("MakerValueError", "MakerError")
+
+#ifdef WITH_THREAD
+#define DECLARE_THREAD_SAVE PyThreadState *_save;
+#else
+#define DECLARE_THREAD_SAVE
+#endif
 
 static struct PyModuleDef hardhat_module;
 
@@ -151,6 +157,21 @@ static bool hardhat_module_object_to_buffer(PyObject *obj, Py_buffer *buffer) {
 	}
 	return true;
 }
+
+/*
+static bool hardhat_module_lock(PyThread_type_lock lock) {
+	PyLockStatus r;
+	Py_BEGIN_ALLOW_THREADS
+	r = PyThread_acquire_lock(lock, WAIT_LOCK);
+	Py_END_ALLOW_THREADS
+	if(r == PY_LOCK_ACQUIRED)
+		return true;
+	else
+		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), false;
+}
+
+#define hardhat_module_unlock(x) PyThread_release_lock((x))
+*/
 
 // Hardhat class utility functions for methods
 
@@ -300,9 +321,7 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwd
 	}
 
 	Py_BEGIN_ALLOW_THREADS
-
 	hh = hardhat_open(filename);
-
 	Py_END_ALLOW_THREADS
 
 	Py_DecRef(decoded_filename);
@@ -567,16 +586,13 @@ static PyObject *HardhatMaker_add(HardhatMaker *self, PyObject *args, PyObject *
 	Py_buffer key_buffer, value_buffer;
 	hardhat_maker_t *hhm;
 	bool ok = false;
+	DECLARE_THREAD_SAVE
 
 	if(!PyArg_ParseTuple(args, "OO:add", &key_object, &value_object))
 		return NULL;
 
 	if(!HardhatMaker_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
-
-	hhm = self->hhm;
-	if(!hhm)
-		return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
 
 	if(hardhat_module_object_to_buffer(key_object, &key_buffer)) {
 		if(hardhat_module_object_to_buffer(value_object, &value_buffer)) {
@@ -588,36 +604,41 @@ static PyObject *HardhatMaker_add(HardhatMaker *self, PyObject *args, PyObject *
 					PyErr_Format(PyExc_ValueError, "value is too long (%zd > %llu)",
 						value_buffer.len, (unsigned long long)INT32_MAX);
 				} else {
+					Py_UNBLOCK_THREADS
 					if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
-						Py_BEGIN_ALLOW_THREADS
-						ok = hardhat_maker_add(hhm,
-							key_buffer.buf, key_buffer.len,
-							value_buffer.buf, value_buffer.len);
-						Py_END_ALLOW_THREADS
-						if(ok) {
-							ret = Py_None;
-							Py_IncRef(ret);
-						} else {
-							if(hardhat_maker_fatal(hhm)) {
-								self->hhm = NULL;
-								PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
-								Py_BEGIN_ALLOW_THREADS
-								hardhat_maker_free(hhm);
-								Py_END_ALLOW_THREADS
+						hhm = self->hhm;
+						if(hhm) {
+							ok = hardhat_maker_add(hhm,
+								key_buffer.buf, key_buffer.len,
+								value_buffer.buf, value_buffer.len);
+							Py_BLOCK_THREADS
+							if(ok) {
+								ret = Py_None;
+								Py_IncRef(ret);
 							} else {
-								PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm));
+								if(hardhat_maker_fatal(hhm)) {
+									self->hhm = NULL;
+									PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
+									Py_UNBLOCK_THREADS
+									hardhat_maker_free(hhm);
+									Py_BLOCK_THREADS
+								} else {
+									PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm));
+								}
 							}
+						} else {
+							Py_BLOCK_THREADS
+							PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed");
 						}
 						PyThread_release_lock(self->lock);
 					} else {
+						Py_BLOCK_THREADS
 						PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock");
 					}
 				}
 			}
-
 			PyBuffer_Release(&value_buffer);
 		}
-
 		PyBuffer_Release(&key_buffer);
 	}
 
@@ -629,44 +650,47 @@ static PyObject *HardhatMaker_parents(HardhatMaker *self, PyObject *value_object
 	Py_buffer value_buffer;
 	hardhat_maker_t *hhm;
 	bool ok = false;
+	DECLARE_THREAD_SAVE
 
 	if(!HardhatMaker_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
-
-	hhm = self->hhm;
-	if(!hhm)
-		return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
 
 	if(hardhat_module_object_to_buffer(value_object, &value_buffer)) {
 		if(value_buffer.len > INT32_MAX) {
 			PyErr_Format(PyExc_ValueError, "value is too long (%zd > %llu)",
 				value_buffer.len, (unsigned long long)INT32_MAX);
 		} else {
+			Py_UNBLOCK_THREADS
 			if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
-				Py_BEGIN_ALLOW_THREADS
-				ok = hardhat_maker_parents(hhm,
-					value_buffer.buf, value_buffer.len);
-				Py_END_ALLOW_THREADS
-				if(ok) {
-					ret = Py_None;
-					Py_IncRef(ret);
-				} else {
-					if(hardhat_maker_fatal(hhm)) {
-						self->hhm = NULL;
-						PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
-						Py_BEGIN_ALLOW_THREADS
-						hardhat_maker_free(hhm);
-						Py_END_ALLOW_THREADS
+				hhm = self->hhm;
+				if(hhm) {
+					ok = hardhat_maker_parents(hhm,
+						value_buffer.buf, value_buffer.len);
+					Py_BLOCK_THREADS
+					if(ok) {
+						ret = Py_None;
+						Py_IncRef(ret);
 					} else {
-						PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm));
+						if(hardhat_maker_fatal(hhm)) {
+							self->hhm = NULL;
+							PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
+							Py_UNBLOCK_THREADS
+							hardhat_maker_free(hhm);
+							Py_BLOCK_THREADS
+						} else {
+							PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm));
+						}
 					}
+				} else {
+					Py_BLOCK_THREADS
+					PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed");
 				}
 				PyThread_release_lock(self->lock);
 			} else {
+				Py_BLOCK_THREADS
 				PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock");
 			}
 		}
-
 		PyBuffer_Release(&value_buffer);
 	}
 
@@ -677,29 +701,35 @@ static PyObject *HardhatMaker_parents(HardhatMaker *self, PyObject *value_object
 static PyObject *HardhatMaker_close(HardhatMaker *self, PyObject *dummy) {
 	hardhat_maker_t *hhm;
 	bool ok = false;
+	DECLARE_THREAD_SAVE
 
 	if(!HardhatMaker_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
-	hhm = self->hhm;
-	if(!hhm)
-		return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
-	self->hhm = NULL;
-
+	Py_UNBLOCK_THREADS
 	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
-		Py_BEGIN_ALLOW_THREADS
-		ok = hardhat_maker_finish(hhm);
-		Py_END_ALLOW_THREADS
-
-		if(!ok)
-			PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
-
-		Py_BEGIN_ALLOW_THREADS
-		hardhat_maker_free(hhm);
-		Py_END_ALLOW_THREADS
-
+		hhm = self->hhm;
+		self->hhm = NULL;
 		PyThread_release_lock(self->lock);
+
+		if(hhm) {
+			ok = hardhat_maker_finish(hhm);
+
+			if(!ok) {
+				Py_BLOCK_THREADS
+				PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
+				Py_UNBLOCK_THREADS
+			}
+
+			hardhat_maker_free(hhm);
+
+			Py_BLOCK_THREADS
+		} else {
+			Py_BLOCK_THREADS
+			PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed");
+		}
 	} else {
+		Py_BLOCK_THREADS
 		PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock");
 	}
 
@@ -719,29 +749,32 @@ static PyObject *HardhatMaker_enter(HardhatMaker *self, PyObject *dummy) {
 static PyObject *HardhatMaker_exit(HardhatMaker *self, PyObject *args, PyObject *kwds) {
 	hardhat_maker_t *hhm;
 	bool ok = false;
+	DECLARE_THREAD_SAVE
 
 	if(!HardhatMaker_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
-	hhm = self->hhm;
-	if(!hhm)
-		Py_RETURN_NONE;
-	self->hhm = NULL;
-
+	Py_UNBLOCK_THREADS
 	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
-		Py_BEGIN_ALLOW_THREADS
-		ok = hardhat_maker_finish(hhm);
-		Py_END_ALLOW_THREADS
-
-		if(!ok)
-			PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
-
-		Py_BEGIN_ALLOW_THREADS
-		hardhat_maker_free(hhm);
-		Py_END_ALLOW_THREADS
-
+		hhm = self->hhm;
+		self->hhm = NULL;
 		PyThread_release_lock(self->lock);
+
+		if(hhm) {
+			ok = hardhat_maker_finish(hhm);
+
+			if(!ok) {
+				Py_BLOCK_THREADS
+				PyErr_SetString(HARDHAT_MAKER_FATAL_ERROR, hardhat_maker_error(hhm));
+				Py_UNBLOCK_THREADS
+			}
+
+			hardhat_maker_free(hhm);
+		}
+
+		Py_BLOCK_THREADS
 	} else {
+		Py_BLOCK_THREADS
 		PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock");
 	}
 
@@ -803,16 +836,14 @@ static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyO
 static void HardhatMaker_dealloc(HardhatMaker *self) {
 	if(HardhatMaker_check(self)) {
 		self->magic = 0;
-		if(self->hhm) {
-			if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
-				Py_BEGIN_ALLOW_THREADS
-				hardhat_maker_free(self->hhm);
-				Py_END_ALLOW_THREADS
-				PyThread_release_lock(self->lock);
-			} else {
-				hardhat_maker_free(self->hhm);
-			}
+		Py_BEGIN_ALLOW_THREADS
+		if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
+			hardhat_maker_free(self->hhm);
+			PyThread_release_lock(self->lock);
+		} else {
+			hardhat_maker_free(self->hhm);
 		}
+		Py_END_ALLOW_THREADS
 		PyThread_free_lock(self->lock);
 	}
 
