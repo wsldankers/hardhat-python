@@ -793,6 +793,149 @@ static PyMethodDef HardhatMaker_methods[] = {
 	{NULL}
 };
 
+#ifdef HAVE_HARDHAT_MAKER_ALIGNMENT
+static PyObject *HardhatMaker_get_alignment(HardhatMaker *self, void *userdata) {
+	hardhat_maker_t *hhm;
+	uint64_t alignment;
+	DECLARE_THREAD_SAVE
+
+	if(!HardhatMaker_check(self))
+		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
+
+	Py_UNBLOCK_THREADS
+	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
+		hhm = self->hhm;
+		if(hhm) {
+			alignment = hardhat_maker_alignment(hhm, 0);
+			PyThread_release_lock(self->lock);
+			Py_BLOCK_THREADS
+			if(alignment)
+				return PyLong_FromUnsignedLongLong(alignment);
+			else
+				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), NULL;
+		} else {
+			Py_BLOCK_THREADS
+			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
+		}
+	} else {
+		Py_BLOCK_THREADS
+		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), NULL;
+	}
+}
+	
+static int HardhatMaker_set_alignment(HardhatMaker *self, PyObject *value, void *userdata) {
+	hardhat_maker_t *hhm;
+	uint64_t alignment;
+	unsigned PY_LONG_LONG upll;
+	DECLARE_THREAD_SAVE
+
+	if(!HardhatMaker_check(self))
+		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), -1;
+
+	PyErr_Clear();
+	upll = PyLong_AsUnsignedLongLong(value);
+	if(PyErr_Occurred())
+		return -1;
+
+	Py_UNBLOCK_THREADS
+	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
+		hhm = self->hhm;
+		if(hhm) {
+			alignment = hardhat_maker_alignment(hhm, upll);
+			PyThread_release_lock(self->lock);
+			Py_BLOCK_THREADS
+			if(alignment)
+				return 0;
+			else
+				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), -1;
+		} else {
+			Py_BLOCK_THREADS
+			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), -1;
+		}
+	} else {
+		Py_BLOCK_THREADS
+		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), -1;
+	}
+}
+#endif
+
+#ifdef HAVE_HARDHAT_MAKER_BLOCKSIZE
+static PyObject *HardhatMaker_get_blocksize(HardhatMaker *self, void *userdata) {
+	hardhat_maker_t *hhm;
+	uint64_t blocksize;
+	DECLARE_THREAD_SAVE
+
+	if(!HardhatMaker_check(self))
+		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
+
+	Py_UNBLOCK_THREADS
+	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
+		hhm = self->hhm;
+		if(hhm) {
+			blocksize = hardhat_maker_blocksize(hhm, 0);
+			PyThread_release_lock(self->lock);
+			Py_BLOCK_THREADS
+			if(blocksize)
+				return PyLong_FromUnsignedLongLong(blocksize);
+			else
+				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), NULL;
+		} else {
+			Py_BLOCK_THREADS
+			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
+		}
+	} else {
+		Py_BLOCK_THREADS
+		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), NULL;
+	}
+}
+	
+
+static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void *userdata) {
+	hardhat_maker_t *hhm;
+	uint64_t blocksize;
+	unsigned PY_LONG_LONG upll;
+	DECLARE_THREAD_SAVE
+
+	if(!HardhatMaker_check(self))
+		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), -1;
+
+	PyErr_Clear();
+	upll = PyLong_AsUnsignedLongLong(value);
+	if(PyErr_Occurred())
+		return -1;
+
+	Py_UNBLOCK_THREADS
+	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
+		hhm = self->hhm;
+		if(hhm) {
+			blocksize = hardhat_maker_blocksize(hhm, upll);
+			PyThread_release_lock(self->lock);
+			Py_BLOCK_THREADS
+			if(blocksize)
+				return 0;
+			else
+				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), -1;
+		} else {
+			Py_BLOCK_THREADS
+			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), -1;
+		}
+	} else {
+		Py_BLOCK_THREADS
+		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), -1;
+	}
+}
+#endif
+
+static PyGetSetDef HardhatMaker_getset[] = {
+#ifdef HAVE_HARDHAT_MAKER_ALIGNMENT
+	{"alignment", (getter)HardhatMaker_get_alignment, (setter)HardhatMaker_set_alignment, "set the alignment", NULL},
+#endif
+#ifdef HAVE_HARDHAT_MAKER_BLOCKSIZE
+	{"blocksize", (getter)HardhatMaker_get_blocksize, (setter)HardhatMaker_set_blocksize, "set the block size", NULL},
+#endif
+	{NULL}
+};
+
 static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds) {
 	HardhatMaker *self = NULL;
 	PyObject *filename_object, *decoded_filename;
@@ -880,7 +1023,7 @@ static PyTypeObject HardhatMaker_type = {
 	0,                                         // tp_iternext
 	HardhatMaker_methods,                      // tp_methods
 	0,                                         // tp_members
-	0,                                         // tp_getset
+	HardhatMaker_getset,                       // tp_getset
 	0,                                         // tp_base
 	0,                                         // tp_dict
 	0,                                         // tp_descr_get
