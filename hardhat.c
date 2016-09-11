@@ -277,6 +277,34 @@ static PyMethodDef Hardhat_methods[] = {
 	{NULL}
 };
 
+#ifdef HAVE_HARDHAT_ALIGNMENT
+static PyObject *Hardhat_get_alignment(Hardhat *self, void *userdata) {
+	if(!Hardhat_check(self))
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
+
+	return PyLong_FromUnsignedLongLong(hardhat_alignment(self->hh));
+}
+#endif
+
+#ifdef HAVE_HARDHAT_BLOCKSIZE
+static PyObject *Hardhat_get_blocksize(Hardhat *self, void *userdata) {
+	if(!Hardhat_check(self))
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
+
+	return PyLong_FromUnsignedLongLong(hardhat_blocksize(self->hh));
+}
+#endif
+
+static PyGetSetDef Hardhat_getset[] = {
+#ifdef HAVE_HARDHAT_ALIGNMENT
+	{"alignment", (getter)Hardhat_get_alignment, NULL, "the alignment of values", NULL},
+#endif
+#ifdef HAVE_HARDHAT_BLOCKSIZE
+	{"blocksize", (getter)Hardhat_get_blocksize, NULL, "the assumed block size", NULL},
+#endif
+	{NULL}
+};
+
 // Hardhat mapping functions
 
 static PyObject *Hardhat_getitem(Hardhat *self, PyObject *keyobject) {
@@ -388,7 +416,7 @@ static PyTypeObject Hardhat_type = {
 	0,                                  // tp_iternext
 	Hardhat_methods,                    // tp_methods
 	0,                                  // tp_members
-	0,                                  // tp_getset
+	Hardhat_getset,                     // tp_getset
 	0,                                  // tp_base
 	0,                                  // tp_dict
 	0,                                  // tp_descr_get
@@ -822,7 +850,7 @@ static PyObject *HardhatMaker_get_alignment(HardhatMaker *self, void *userdata) 
 		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), NULL;
 	}
 }
-	
+
 static int HardhatMaker_set_alignment(HardhatMaker *self, PyObject *value, void *userdata) {
 	hardhat_maker_t *hhm;
 	uint64_t alignment;
@@ -836,6 +864,8 @@ static int HardhatMaker_set_alignment(HardhatMaker *self, PyObject *value, void 
 	upll = PyLong_AsUnsignedLongLong(value);
 	if(PyErr_Occurred())
 		return -1;
+	if(!upll)
+		return PyErr_SetString(PyExc_ValueError, "alignment cannot be 0 (use 1 to disable alignment)"), -1;
 
 	Py_UNBLOCK_THREADS
 	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
@@ -888,7 +918,7 @@ static PyObject *HardhatMaker_get_blocksize(HardhatMaker *self, void *userdata) 
 		return PyErr_SetString(PyExc_RuntimeError, "unable to acquire lock"), NULL;
 	}
 }
-	
+
 
 static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void *userdata) {
 	hardhat_maker_t *hhm;
@@ -903,6 +933,8 @@ static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void 
 	upll = PyLong_AsUnsignedLongLong(value);
 	if(PyErr_Occurred())
 		return -1;
+	if(!upll)
+		return PyErr_SetString(PyExc_ValueError, "block size cannot be 0 (use 1 to disable block alignment)"), -1;
 
 	Py_UNBLOCK_THREADS
 	if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
@@ -928,10 +960,10 @@ static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void 
 
 static PyGetSetDef HardhatMaker_getset[] = {
 #ifdef HAVE_HARDHAT_MAKER_ALIGNMENT
-	{"alignment", (getter)HardhatMaker_get_alignment, (setter)HardhatMaker_set_alignment, "set the alignment", NULL},
+	{"alignment", (getter)HardhatMaker_get_alignment, (setter)HardhatMaker_set_alignment, "the alignment of values", NULL},
 #endif
 #ifdef HAVE_HARDHAT_MAKER_BLOCKSIZE
-	{"blocksize", (getter)HardhatMaker_get_blocksize, (setter)HardhatMaker_set_blocksize, "set the block size", NULL},
+	{"blocksize", (getter)HardhatMaker_get_blocksize, (setter)HardhatMaker_set_blocksize, "the assumed block size", NULL},
 #endif
 	{NULL}
 };
