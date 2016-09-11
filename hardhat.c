@@ -388,52 +388,15 @@ static PyObject *Hardhat_iter(Hardhat *self) {
 
 static PyTypeObject Hardhat_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"hardhat.Hardhat",                  // tp_name
-	sizeof(Hardhat),                    // tp_basicsize
-	0,                                  // tp_itemsize
-	(destructor)Hardhat_dealloc,        // tp_dealloc
-	0,                                  // tp_print
-	0,                                  // tp_getattr
-	0,                                  // tp_setattr
-	0,                                  // tp_reserved
-	0,                                  // tp_repr
-	0,                                  // tp_as_number
-	0,                                  // tp_as_sequence
-	&Hardhat_as_mapping,                // tp_as_mapping
-	0,                                  // tp_hash
-	0,                                  // tp_call
-	0,                                  // tp_str
-	0,                                  // tp_getattro
-	0,                                  // tp_setattro
-	0,                                  // tp_as_buffer
-	Py_TPFLAGS_DEFAULT,                 // tp_flags
-	0,                                  // tp_doc
-	0,                                  // tp_traverse
-	0,                                  // tp_clear
-	0,                                  // tp_richcompare
-	0,                                  // tp_weaklistoffset
-	(getiterfunc)Hardhat_iter,          // tp_iter
-	0,                                  // tp_iternext
-	Hardhat_methods,                    // tp_methods
-	0,                                  // tp_members
-	Hardhat_getset,                     // tp_getset
-	0,                                  // tp_base
-	0,                                  // tp_dict
-	0,                                  // tp_descr_get
-	0,                                  // tp_descr_set
-	0,                                  // tp_dictoffset
-	0,                                  // tp_init
-	0,                                  // tp_alloc
-	(newfunc)Hardhat_new,               // tp_new
-	0,                                  // tp_free
-	0,                                  // tp_is_gc
-	0,                                  // tp_bases
-	0,                                  // tp_mro
-	0,                                  // tp_cache
-	0,                                  // tp_subclasses
-	0,                                  // tp_weaklist
-	0,                                  // tp_del
-	0,                                  // tp_version_tag
+	.tp_name = "hardhat.Hardhat",
+	.tp_basicsize = sizeof(Hardhat),
+	.tp_dealloc = (destructor)Hardhat_dealloc,
+	.tp_as_mapping = &Hardhat_as_mapping,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_iter = (getiterfunc)Hardhat_iter,
+	.tp_methods = Hardhat_methods,
+	.tp_getset = Hardhat_getset,
+	.tp_new = (newfunc)Hardhat_new,
 };
 
 // Hardhat object methods
@@ -561,52 +524,15 @@ static void HardhatCursor_dealloc(HardhatCursor *self) {
 
 static PyTypeObject HardhatCursor_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"hardhat.HardhatCursor",                   // tp_name
-	sizeof(HardhatCursor),                     // tp_basicsize
-	0,                                         // tp_itemsize
-	(destructor)HardhatCursor_dealloc,         // tp_dealloc
-	0,                                         // tp_print
-	0,                                         // tp_getattr
-	0,                                         // tp_setattr
-	0,                                         // tp_reserved
-	0,                                         // tp_repr
-	0,                                         // tp_as_number
-	0,                                         // tp_as_sequence
-	0,                                         // tp_as_mapping
-	0,                                         // tp_hash
-	0,                                         // tp_call
-	0,                                         // tp_str
-	0,                                         // tp_getattro
-	0,                                         // tp_setattro
-	&HardhatCursor_as_buffer,                  // tp_as_buffer
-	Py_TPFLAGS_DEFAULT,                        // tp_flags
-	0,                                         // tp_doc
-	0,                                         // tp_traverse
-	0,                                         // tp_clear
-	0,                                         // tp_richcompare
-	0,                                         // tp_weaklistoffset
-	PyObject_SelfIter,                         // tp_iter
-	(iternextfunc)HardhatCursor_iternext,      // tp_iternext
-	HardhatCursor_methods,                     // tp_methods
-	0,                                         // tp_members
-	HardhatCursor_getset,                      // tp_getset
-	0,                                         // tp_base
-	0,                                         // tp_dict
-	0,                                         // tp_descr_get
-	0,                                         // tp_descr_set
-	0,                                         // tp_dictoffset
-	0,                                         // tp_init
-	0,                                         // tp_alloc
-	0,                                         // tp_new
-	0,                                         // tp_free
-	0,                                         // tp_is_gc
-	0,                                         // tp_bases
-	0,                                         // tp_mro
-	0,                                         // tp_cache
-	0,                                         // tp_subclasses
-	0,                                         // tp_weaklist
-	0,                                         // tp_del
-	0,                                         // tp_version_tag
+	.tp_name = "hardhat.HardhatCursor",
+	.tp_basicsize = sizeof(HardhatCursor),
+	.tp_dealloc = (destructor)HardhatCursor_dealloc,
+	.tp_as_buffer = &HardhatCursor_as_buffer,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_iter = PyObject_SelfIter,
+	.tp_iternext = (iternextfunc)HardhatCursor_iternext,
+	.tp_methods = HardhatCursor_methods,
+	.tp_getset = HardhatCursor_getset,
 };
 
 static PyObject *HardhatMaker_add(HardhatMaker *self, PyObject *args, PyObject *kwds) {
@@ -1027,52 +953,13 @@ static void HardhatMaker_dealloc(HardhatMaker *self) {
 
 static PyTypeObject HardhatMaker_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	"hardhat.HardhatMaker",                    // tp_name
-	sizeof(HardhatMaker),                      // tp_basicsize
-	0,                                         // tp_itemsize
-	(destructor)HardhatMaker_dealloc,          // tp_dealloc
-	0,                                         // tp_print
-	0,                                         // tp_getattr
-	0,                                         // tp_setattr
-	0,                                         // tp_reserved
-	0,                                         // tp_repr
-	0,                                         // tp_as_number
-	0,                                         // tp_as_sequence
-	0,                                         // tp_as_mapping
-	0,                                         // tp_hash
-	0,                                         // tp_call
-	0,                                         // tp_str
-	0,                                         // tp_getattro
-	0,                                         // tp_setattro
-	0,                                         // tp_as_buffer
-	Py_TPFLAGS_DEFAULT,                        // tp_flags
-	0,                                         // tp_doc
-	0,                                         // tp_traverse
-	0,                                         // tp_clear
-	0,                                         // tp_richcompare
-	0,                                         // tp_weaklistoffset
-	0,                                         // tp_iter
-	0,                                         // tp_iternext
-	HardhatMaker_methods,                      // tp_methods
-	0,                                         // tp_members
-	HardhatMaker_getset,                       // tp_getset
-	0,                                         // tp_base
-	0,                                         // tp_dict
-	0,                                         // tp_descr_get
-	0,                                         // tp_descr_set
-	0,                                         // tp_dictoffset
-	0,                                         // tp_init
-	0,                                         // tp_alloc
-	(newfunc)HardhatMaker_new,                 // tp_new
-	0,                                         // tp_free
-	0,                                         // tp_is_gc
-	0,                                         // tp_bases
-	0,                                         // tp_mro
-	0,                                         // tp_cache
-	0,                                         // tp_subclasses
-	0,                                         // tp_weaklist
-	0,                                         // tp_del
-	0,                                         // tp_version_tag
+	.tp_name = "hardhat.HardhatMaker",
+	.tp_basicsize = sizeof(HardhatMaker),
+	.tp_dealloc = (destructor)HardhatMaker_dealloc,
+	.tp_flags = Py_TPFLAGS_DEFAULT,
+	.tp_methods = HardhatMaker_methods,
+	.tp_getset = HardhatMaker_getset,
+	.tp_new = (newfunc)HardhatMaker_new,
 };
 
 // Hardhat module functions
