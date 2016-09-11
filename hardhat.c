@@ -399,11 +399,7 @@ static PyTypeObject Hardhat_type = {
 	.tp_new = (newfunc)Hardhat_new,
 };
 
-// Hardhat object methods
-
-static PyMethodDef HardhatCursor_methods[] = {
-	{NULL}
-};
+// HardhatCursor object protocol
 
 static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int flags) {
 	hardhat_cursor_t *hhc;
@@ -531,7 +527,6 @@ static PyTypeObject HardhatCursor_type = {
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_iter = PyObject_SelfIter,
 	.tp_iternext = (iternextfunc)HardhatCursor_iternext,
-	.tp_methods = HardhatCursor_methods,
 	.tp_getset = HardhatCursor_getset,
 };
 
