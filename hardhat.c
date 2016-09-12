@@ -985,14 +985,9 @@ PyDoc_STRVAR(hardhat_module_doc, "Python wrapper for the hardhat library");
 
 static struct PyModuleDef hardhat_module = {
 	PyModuleDef_HEAD_INIT,
-	"hardhat",
-	hardhat_module_doc,
-	-1,
-	hardhat_module_functions,
-	NULL,
-	NULL,
-	NULL,
-	NULL
+	.m_name = "hardhat",
+	.m_doc = hardhat_module_doc,
+	.m_methods = hardhat_module_functions,
 };
 
 PyMODINIT_FUNC PyInit_hardhat(void) {
