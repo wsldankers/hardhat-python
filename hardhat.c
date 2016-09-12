@@ -235,19 +235,19 @@ static PyObject *Hardhat_find(Hardhat *self, PyObject *keyobject) {
 	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, true, true, true, false);
 }
 
-static PyObject *Hardhat_get_keys(Hardhat *self, PyObject *dummy) {
+static PyObject *Hardhat_keys(Hardhat *self, PyObject *dummy) {
 	if(!Hardhat_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, true, false, true);
 }
 
-static PyObject *Hardhat_get_values(Hardhat *self, PyObject *dummy) {
+static PyObject *Hardhat_values(Hardhat *self, PyObject *dummy) {
 	if(!Hardhat_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, false, true, true);
 }
 
-static PyObject *Hardhat_get_items(Hardhat *self, PyObject *dummy) {
+static PyObject *Hardhat_items(Hardhat *self, PyObject *dummy) {
 	if(!Hardhat_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, true, true, true);
@@ -269,9 +269,9 @@ static PyObject *Hardhat_exit(Hardhat *self, PyObject *args, PyObject *kwds) {
 static PyMethodDef Hardhat_methods[] = {
 	{"ls", (PyCFunction)Hardhat_ls, METH_O, "return a non-recursive iterator"},
 	{"find", (PyCFunction)Hardhat_find, METH_O, "return a recursive iterator"},
-	{"keys", (PyCFunction)Hardhat_get_keys, METH_NOARGS, "iterator over all keys"},
-	{"values", (PyCFunction)Hardhat_get_values, METH_NOARGS, "iterator over all values"},
-	{"items", (PyCFunction)Hardhat_get_items, METH_NOARGS, "iterator over tuples of all keys and values"},
+	{"keys", (PyCFunction)Hardhat_keys, METH_NOARGS, "iterator over all keys"},
+	{"values", (PyCFunction)Hardhat_values, METH_NOARGS, "iterator over all values"},
+	{"items", (PyCFunction)Hardhat_items, METH_NOARGS, "iterator over tuples of all keys and values"},
 	{"__enter__", (PyCFunction)Hardhat_enter, METH_NOARGS, "return a context manager for 'with'"},
 	{"__exit__", (PyCFunction)Hardhat_exit, METH_VARARGS, "callback for 'with' context manager"},
 	{NULL}
@@ -383,7 +383,7 @@ static void Hardhat_dealloc(Hardhat *self) {
 }
 
 static PyObject *Hardhat_iter(Hardhat *self) {
-	return Hardhat_get_items(self, NULL);
+	return Hardhat_items(self, NULL);
 }
 
 static PyTypeObject Hardhat_type = {
