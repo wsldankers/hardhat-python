@@ -22,6 +22,7 @@ typedef struct {
 	bool keys:1;
 	bool values:1;
 	bool initial:1;
+	bool finished:1;
 } HardhatCursor;
 
 typedef struct {
@@ -476,7 +477,7 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 	PyObject *keyobject, *valueobject, *tupleobject;
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
-		if((self->initial && hhc->data) || hardhat_fetch(hhc, self->recursive)) {
+		if(!self->done && ((self->initial && hhc->data) || hardhat_fetch(hhc, self->recursive))) {
 			self->initial = false;
 			if(self->keys) {
 				keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
@@ -514,6 +515,7 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 static void HardhatCursor_dealloc(HardhatCursor *self) {
 	if(HardhatCursor_check(self)) {
 		self->magic = 0;
+		hardhat_cursor_free(self->hhc);
 		Py_DecRef(&self->hardhat->ob_base);
 	}
 }
