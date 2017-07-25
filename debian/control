@@ -2,8 +2,9 @@ Source: hardhat-python
 Section: python
 Priority: extra
 Maintainer: Wessel Dankers <wsl@fruit.je>
-Build-Depends: debhelper (>= 7), libhardhat-dev, python3.4-dev | python3-dev
+Build-Depends: debhelper (>= 7), dh-python, libhardhat-dev, python3-dev
 Standards-Version: 3.7.2
+X-Python3-Version: >= 3.4
 
 Package: python3-hardhat
 Architecture: any

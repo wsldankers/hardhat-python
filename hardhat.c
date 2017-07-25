@@ -477,7 +477,7 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 	PyObject *keyobject, *valueobject, *tupleobject;
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
-		if(!self->done && ((self->initial && hhc->data) || hardhat_fetch(hhc, self->recursive))) {
+		if(!self->finished && ((self->initial && hhc->data) || hardhat_fetch(hhc, self->recursive))) {
 			self->initial = false;
 			if(self->keys) {
 				keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
@@ -503,6 +503,8 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 					return PyErr_SetString(HARDHAT_INTERNAL_ERROR,
 						"internal error in HardhatCursor_iternext()"), NULL;
 			}
+		} else {
+			self->finished = true;
 		}
 	} else {
 		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
