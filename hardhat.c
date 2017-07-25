@@ -503,13 +503,11 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 					return PyErr_SetString(HARDHAT_INTERNAL_ERROR,
 						"internal error in HardhatCursor_iternext()"), NULL;
 			}
-		} else {
-			return NULL;
 		}
 	} else {
 		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
-		return NULL;
 	}
+	return NULL;
 }
 
 static void HardhatCursor_dealloc(HardhatCursor *self) {
