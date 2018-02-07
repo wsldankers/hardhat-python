@@ -1032,7 +1032,8 @@ PyMODINIT_FUNC PyInit_hardhat(void) {
 
 			state->HardhatCursor_type = (PyTypeObject *)PyType_FromSpec(&HardhatCursor_spec);
 			if(PyModule_AddObject(module, "HardhatCursor", &state->HardhatCursor_type->ob_base.ob_base) != -1) {
-				((PyHeapTypeObject *)state->HardhatCursor_type)->as_buffer.bf_getbuffer = (getbufferproc)HardhatCursor_getbuffer;
+				if(state->HardhatCursor_type->tp_as_buffer)
+					state->HardhatCursor_type->tp_as_buffer->bf_getbuffer = (getbufferproc)HardhatCursor_getbuffer;
 				Py_IncRef(&state->HardhatCursor_type->ob_base.ob_base);
 
 				state->HardhatMaker_type = (PyTypeObject *)PyType_FromSpec(&HardhatMaker_spec);
