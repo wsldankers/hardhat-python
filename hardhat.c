@@ -203,6 +203,7 @@ static PyObject *Hardhat_cursor(Hardhat *self, void *buf, size_t len, bool recur
 			cursor->keys = keys;
 			cursor->values = values;
 			cursor->initial = initial;
+			cursor->finished = false;
 			cursor->magic = HARDHAT_CURSOR_MAGIC;
 			return &cursor->ob_base;
 		}
