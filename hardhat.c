@@ -43,7 +43,6 @@ static const struct hardhat_module_state hardhat_module_state_0 = {0};
 
 #define HARDHAT_MAGIC (UINT64_C(0x36CCB37946C40BBF))
 #define HARDHAT_CURSOR_MAGIC (UINT64_C(0xE0B0487F7D045047))
-#define HARDHAT_VALUE_MAGIC (UINT64_C(0xAAE89394CECC3DD8))
 #define HARDHAT_MAKER_MAGIC (UINT64_C(0x5236CC4EFF9CAE19))
 
 #define HARDHAT_INTERNAL_ERROR hardhat_module_exception("InternalError", NULL)
