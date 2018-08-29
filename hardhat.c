@@ -18,10 +18,15 @@ typedef struct {
 	uint64_t magic;
 	Hardhat *hardhat;
 	hardhat_cursor_t *hhc;
+	// whether this is a recursive listing:
 	bool recursive:1;
+	// whether this listing returns keys:
 	bool keys:1;
+	// whether this listing returns values:
 	bool values:1;
+	// whether to include the parent node in this listing:
 	bool initial:1;
+	// whether this listing is finished:
 	bool finished:1;
 } HardhatCursor;
 
@@ -404,8 +409,10 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 		hhc = self->hhc;
 		if(hhc->data)
 			return PyBuffer_FillInfo(buffer, &self->hardhat->ob_base, (char *)hhc->data, hhc->datalen, 1, flags);
+		if(self->finished)
+			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 		else
-			PyErr_SetString(PyExc_BufferError, "HardhatCursor object doesn't currently point at an entry");
+			PyErr_SetString(PyExc_KeyError, "no parent entry found");
 	} else {
 		PyErr_SetString(PyExc_BufferError, "not a valid HardhatCursor object");
 	}
@@ -421,7 +428,12 @@ static PyObject *HardhatCursor_get_key(HardhatCursor *self, void *userdata) {
 	hardhat_cursor_t *hhc;
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
-		return PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
+		if(hhc->data)
+			return PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
+		if(self->finished)
+			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
+		else
+			PyErr_SetString(PyExc_KeyError, "no parent entry found");
 	} else {
 		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
 	}
@@ -430,7 +442,12 @@ static PyObject *HardhatCursor_get_key(HardhatCursor *self, void *userdata) {
 
 static PyObject *HardhatCursor_get_value(HardhatCursor *self, void *userdata) {
 	if(HardhatCursor_check(self)) {
-		return PyMemoryView_FromObject(&self->ob_base);
+		if(self->hhc->data)
+			return PyMemoryView_FromObject(&self->ob_base);
+		if(self->finished)
+			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
+		else
+			PyErr_SetString(PyExc_KeyError, "no parent entry found");
 	} else {
 		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
 	}
@@ -442,17 +459,24 @@ static PyObject *HardhatCursor_get_item(HardhatCursor *self, void *userdata) {
 	hardhat_cursor_t *hhc;
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
-		keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
-		if(keyobject) {
-			valueobject = PyMemoryView_FromObject(&self->ob_base);
-			if(valueobject) {
-				tupleobject = PyTuple_Pack(2, keyobject, valueobject);
-				Py_DecRef(valueobject);
-			} else {
-				tupleobject = NULL;
+		if(hhc->data) {
+			keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
+			if(keyobject) {
+				valueobject = PyMemoryView_FromObject(&self->ob_base);
+				if(valueobject) {
+					tupleobject = PyTuple_Pack(2, keyobject, valueobject);
+					Py_DecRef(valueobject);
+				} else {
+					tupleobject = NULL;
+				}
+				Py_DecRef(keyobject);
+				return tupleobject;
 			}
-			Py_DecRef(keyobject);
-			return tupleobject;
+		} else {
+			if(self->finished)
+				PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
+			else
+				PyErr_SetString(PyExc_KeyError, "no parent entry found");
 		}
 	} else {
 		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
