@@ -227,16 +227,26 @@ static PyObject *Hardhat_cursor_from_object(Hardhat *self, PyObject *keyobject, 
 
 // Hardhat methods
 
-static PyObject *Hardhat_ls(Hardhat *self, PyObject *keyobject) {
+static PyObject *Hardhat_ls(Hardhat *self, PyObject *args, PyObject *kwargs) {
+	PyObject *keyobject;
+	int parent = 0;
+	static char *keywords[] = {"", "parent", NULL};
 	if(!Hardhat_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, false, true, true, false);
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$p", keywords, &keyobject, &parent))
+		return NULL;
+	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, false, true, true, parent);
 }
 
-static PyObject *Hardhat_find(Hardhat *self, PyObject *keyobject) {
+static PyObject *Hardhat_find(Hardhat *self, PyObject *args, PyObject *kwargs) {
+	PyObject *keyobject;
+	int parent = 0;
+	static char *keywords[] = {"", "parent", NULL};
 	if(!Hardhat_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, true, true, true, false);
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$p", keywords, &keyobject, &parent))
+		return NULL;
+	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, true, true, true, parent);
 }
 
 static PyObject *Hardhat_keys(Hardhat *self, PyObject *dummy) {
@@ -271,8 +281,8 @@ static PyObject *Hardhat_exit(Hardhat *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyMethodDef Hardhat_methods[] = {
-	{"ls", (PyCFunction)Hardhat_ls, METH_O, "return a non-recursive iterator"},
-	{"find", (PyCFunction)Hardhat_find, METH_O, "return a recursive iterator"},
+	{"ls", (PyCFunction)Hardhat_ls, METH_VARARGS|METH_KEYWORDS, "return a non-recursive iterator"},
+	{"find", (PyCFunction)Hardhat_find, METH_VARARGS|METH_KEYWORDS, "return a recursive iterator"},
 	{"keys", (PyCFunction)Hardhat_keys, METH_NOARGS, "iterator over all keys"},
 	{"values", (PyCFunction)Hardhat_values, METH_NOARGS, "iterator over all values"},
 	{"items", (PyCFunction)Hardhat_items, METH_NOARGS, "iterator over tuples of all keys and values"},
