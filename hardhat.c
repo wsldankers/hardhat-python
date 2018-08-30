@@ -240,7 +240,7 @@ static PyObject *Hardhat_ls(Hardhat *self, PyObject *args, PyObject *kwargs) {
 
 static PyObject *Hardhat_find(Hardhat *self, PyObject *args, PyObject *kwargs) {
 	PyObject *keyobject;
-	int parent = 0;
+	int parent = 1;
 	static char *keywords[] = {"", "parent", NULL};
 	if(!Hardhat_check(self))
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
