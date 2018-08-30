@@ -484,10 +484,27 @@ static PyObject *HardhatCursor_get_item(HardhatCursor *self, void *userdata) {
 	return NULL;
 }
 
+static PyObject *HardhatCursor_get_inode(HardhatCursor *self, void *userdata) {
+	hardhat_cursor_t *hhc;
+	if(HardhatCursor_check(self)) {
+		hhc = self->hhc;
+		if(hhc->data)
+			return PyLong_FromUnsignedLongLong(hhc->cur);
+		if(self->finished)
+			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
+		else
+			PyErr_SetString(PyExc_KeyError, "no parent entry found");
+	} else {
+		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
+	}
+	return NULL;
+}
+
 static PyGetSetDef HardhatCursor_getset[] = {
 	{"key", (getter)HardhatCursor_get_key, NULL, "get the current key (bytes)", NULL},
 	{"value", (getter)HardhatCursor_get_value, NULL, "get the current value (memoryview)", NULL},
 	{"item", (getter)HardhatCursor_get_item, NULL, "get the current key and value (tuple)", NULL},
+	{"inode", (getter)HardhatCursor_get_inode, NULL, "get the current inode (int)", NULL},
 	{NULL}
 };
 
