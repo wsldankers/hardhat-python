@@ -1016,8 +1016,10 @@ static PyObject *hardhat_module_normalize(PyObject *self, PyObject *obj) {
 	if(!hardhat_module_object_to_buffer(obj, &buffer))
 		return NULL;
 
+	// if you pass 0 for the length, you get a shared bytes object and
+	//_PyBytes_Resize will fail.
 	result = PyBytes_FromStringAndSize(NULL, buffer.len);
-	if(result)
+	if(result && buffer.len)
 		_PyBytes_Resize(&result,
 			hardhat_normalize(PyBytes_AS_STRING(result), buffer.buf, buffer.len));
 
