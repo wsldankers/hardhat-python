@@ -11,6 +11,31 @@
 typedef struct {
 	PyObject_HEAD
 	uint64_t magic;
+	// Implement shared locking, because we need to be careful not to close
+	// the underlying hardhat object while other threads are using it.
+
+	// A reading thread makes a copy of hh into a local variable, tests if it
+	// is not NULL, and if so, increases users by 1.
+	// If hh was NULL, users is not increased and the Hardhat object is
+	// considered closed. Only now does it release the GIL.
+
+	// When the reading thread is done with the hh object, it reacquires the
+	// GIL and decreases the users count. If that count reached zero it
+	// checks hh again. If hh is now NULL, it unlocks the lock.
+
+	// If the reader does not need to drop the GIL, it can simply check hh
+	// and use it, without manipulating the users count.
+
+	// A writing thread (a closer) makes a copy of hh into a local variable
+	// and checks that it is not already NULL (in which case there is nothing
+	// left to do, as the hardhat is already freed). It then sets hh to NULL.
+	// Next it checks the users count. If this count is non-zero, it locks the
+	// lock once, releases the GIL, and then locks it again (in order to
+	// block). When the second lock is acquired, it frees the hh object
+	// and reacquires the GIL.
+
+	size_t users;
+	PyThread_type_lock lock;
 	hardhat_t *hh;
 } Hardhat;
 
@@ -829,6 +854,7 @@ static PyObject *HardhatMaker_get_alignment(HardhatMaker *self, void *userdata) 
 			else
 				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), NULL;
 		} else {
+			PyThread_release_lock(self->lock);
 			Py_BLOCK_THREADS
 			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
 		}
@@ -866,6 +892,7 @@ static int HardhatMaker_set_alignment(HardhatMaker *self, PyObject *value, void 
 			else
 				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), -1;
 		} else {
+			PyThread_release_lock(self->lock);
 			Py_BLOCK_THREADS
 			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), -1;
 		}
@@ -897,6 +924,7 @@ static PyObject *HardhatMaker_get_blocksize(HardhatMaker *self, void *userdata) 
 			else
 				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), NULL;
 		} else {
+			PyThread_release_lock(self->lock);
 			Py_BLOCK_THREADS
 			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), NULL;
 		}
@@ -935,6 +963,7 @@ static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void 
 			else
 				return PyErr_SetString(HARDHAT_MAKER_ERROR, hardhat_maker_error(hhm)), -1;
 		} else {
+			PyThread_release_lock(self->lock);
 			Py_BLOCK_THREADS
 			return PyErr_SetString(HARDHAT_MAKER_VALUE_ERROR, "HardhatMaker object already closed"), -1;
 		}
