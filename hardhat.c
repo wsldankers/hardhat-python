@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <fcntl.h>
 #include <hardhat/reader.h>
 #include <hardhat/maker.h>
 
@@ -341,14 +342,25 @@ static PyMappingMethods Hardhat_as_mapping = {
 	.mp_subscript = (binaryfunc)Hardhat_getitem,
 };
 
-static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds) {
+static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
 	Hardhat *self = NULL;
 	PyObject *filename_object, *decoded_filename;
 	const char *filename;
 	hardhat_t *hh;
 
-	if(!PyArg_ParseTuple(args, "O:new", &filename_object))
+#ifdef HAVE_HARDHAT_OPENAT
+	int dirfd = AT_FDCWD;
+
+	char *keywords[] = { "", "dir_fd", NULL };
+
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$i:new", keywords, &filename_object, &dirfd))
 		return NULL;
+#else
+	char *keywords[] = { "", NULL };
+
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O:new", keywords, &filename_object))
+		return NULL;
+#endif
 
 	decoded_filename = hardhat_module_filename(filename_object);
 	if(!decoded_filename)
@@ -361,7 +373,11 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwd
 	}
 
 	Py_BEGIN_ALLOW_THREADS
+#ifdef HAVE_HARDHAT_OPENAT
+	hh = hardhat_openat(dirfd, filename);
+#else
 	hh = hardhat_open(filename);
+#endif
 	Py_END_ALLOW_THREADS
 
 	Py_DecRef(decoded_filename);
@@ -939,15 +955,27 @@ static PyGetSetDef HardhatMaker_getset[] = {
 	{NULL}
 };
 
-static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds) {
+static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
 	HardhatMaker *self = NULL;
 	PyObject *filename_object, *decoded_filename;
 	const char *filename;
 	hardhat_maker_t *hhm;
 	PyThread_type_lock lock;
 
-	if(!PyArg_ParseTuple(args, "O:new", &filename_object))
+#ifdef HAVE_HARDHAT_MAKER_NEWAT
+	int dirfd = AT_FDCWD;
+	int mode = 0666;
+
+	char *keywords[] = { "", "mode", "dir_fd", NULL };
+
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ii:new", keywords, &filename_object, &mode, &dirfd))
 		return NULL;
+#else
+	char *keywords[] = { "", NULL };
+
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O:new", keywords, &filename_object))
+		return NULL;
+#endif
 
 	lock = PyThread_allocate_lock();
 	if(lock) {
@@ -956,7 +984,11 @@ static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyO
 			filename = PyBytes_AsString(decoded_filename);
 			if(filename) {
 				Py_BEGIN_ALLOW_THREADS
+#ifdef HAVE_HARDHAT_MAKER_NEWAT
+				hhm = hardhat_maker_newat(dirfd, filename, mode);
+#else
 				hhm = hardhat_maker_new(filename);
+#endif
 				Py_END_ALLOW_THREADS
 
 				if(hhm) {
