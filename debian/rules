@@ -1,7 +1,9 @@
 #! /usr/bin/make -f
 
+export PYBUILD_NAME = hardhat
+
 %:
 	exec dh $@ --with=python3 --buildsystem=pybuild
 
-override_dh_builddeb:
-	exec dh_builddeb -- -Zxz -z9
+override_dh_strip:
+	exec dh_strip --package=python3-$(PYBUILD_NAME) --dbg-package=python3-$(PYBUILD_NAME)-dbg

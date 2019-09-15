@@ -2,15 +2,24 @@ Source: hardhat-python
 Section: python
 Priority: optional
 Maintainer: Wessel Dankers <wsl@fruit.je>
-Build-Depends: debhelper (>= 7), dh-python, libhardhat-dev, python3-dev
+Build-Depends: debhelper (>= 7), dh-python, libhardhat-dev, python3-dev, python3-dbg
 Standards-Version: 3.7.2
 X-Python3-Version: >= 3.4
 
 Package: python3-hardhat
 Architecture: any
-Depends: ${python3:Depends}, ${shlibs:Depends}
+Depends: ${python3:Depends}, ${shlibs:Depends}, ${misc:Depends}
 Description: Write-once database with filesystem semantics
  Store files in a write-once database. Keys can be browsed by
  filesystem-like operations.
  .
  This package provides python3 bindings for the library.
+
+Package: python3-hardhat-dbg
+Architecture: any
+Depends: ${python3:Depends}, ${shlibs:Depends}, ${misc:Depends}, python3-hardhat (= ${binary:Version})
+Description: Write-once database with filesystem semantics (dbg)
+ Store files in a write-once database. Keys can be browsed by
+ filesystem-like operations.
+ .
+ This package provides python3-dbg bindings for the library.
