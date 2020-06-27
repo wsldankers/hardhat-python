@@ -1,6 +1,11 @@
+#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
+
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <hardhat/reader.h>
 #include <hardhat/maker.h>
@@ -61,19 +66,22 @@ static PyTypeObject HardhatMaker_type;
 #define DECLARE_THREAD_SAVE
 #endif
 
-static inline bool Hardhat_check(void *v) {
-	return v && PyObject_TypeCheck(v, &Hardhat_type) && ((Hardhat *)v)->magic == HARDHAT_MAGIC;
+static inline Hardhat *Hardhat_check(void *v) {
+	return v && PyObject_TypeCheck(v, &Hardhat_type) && ((Hardhat *)v)->magic == HARDHAT_MAGIC ? v : NULL;
 }
 
-static inline bool HardhatCursor_check(void *v) {
-	return v && PyObject_TypeCheck(v, &HardhatCursor_type) && ((HardhatCursor *)v)->magic == HARDHAT_CURSOR_MAGIC;
+static inline HardhatCursor *HardhatCursor_check(void *v) {
+	return v && PyObject_TypeCheck(v, &HardhatCursor_type) && ((HardhatCursor *)v)->magic == HARDHAT_CURSOR_MAGIC ? v : NULL;
 }
 
-static inline bool HardhatMaker_check(void *v) {
-	return v && PyObject_TypeCheck(v, &HardhatMaker_type) && ((HardhatMaker *)v)->magic == HARDHAT_MAKER_MAGIC;
+static inline HardhatMaker *HardhatMaker_check(void *v) {
+	return v && PyObject_TypeCheck(v, &HardhatMaker_type) && ((HardhatMaker *)v)->magic == HARDHAT_MAKER_MAGIC ? v : NULL;
 }
 
 // hardhat module utility functions
+
+// To appease -Wcast-qual:
+#define FORCE_CAST(t1, t2, x) ((const union { t1 v1; t2 v2; }){.v1 = (x)}.v2)
 
 __attribute__((unused))
 static PyObject *hardhat_module_symbol(const char *name) {
@@ -94,7 +102,7 @@ static PyObject *hardhat_module_create_exception(PyObject *module, const char *n
 	PyObject *exception;
 	char fullname[100];
 	int printed = snprintf(fullname, sizeof fullname, "%s.%s", hardhat_module.m_name, name);
-	if(printed > 0 && printed < sizeof fullname) {
+	if(printed > 0 && (size_t)printed < sizeof fullname) {
 		exception = PyErr_NewException(fullname, base, NULL);
 		PyModule_AddObject(module, name, exception);
 		return exception;
@@ -143,11 +151,10 @@ static PyObject *hardhat_module_filename(PyObject *filename_object) {
 }
 
 static bool hardhat_module_object_to_buffer(PyObject *obj, Py_buffer *buffer) {
-	char *str;
-	Py_ssize_t len;
 
 	if(PyUnicode_Check(obj)) {
-		str = PyUnicode_AsUTF8AndSize(obj, &len);
+		Py_ssize_t len;
+		char *str = FORCE_CAST(const char *, char *, PyUnicode_AsUTF8AndSize(obj, &len));
 		if(!str)
 			return false;
 		PyBuffer_FillInfo(buffer, obj, str, len, 1, 0);
@@ -180,7 +187,7 @@ static bool hardhat_module_lock(PyThread_type_lock lock) {
 
 // Hardhat class utility functions for methods
 
-static PyObject *Hardhat_cursor(Hardhat *self, void *buf, size_t len, bool recursive, bool keys, bool values, bool initial) {
+static PyObject *Hardhat_cursor(Hardhat *self, void *buf, uint16_t len, bool recursive, bool keys, bool values, bool initial) {
 	hardhat_cursor_t *c;
 	HardhatCursor *cursor;
 
@@ -223,7 +230,7 @@ static PyObject *Hardhat_cursor_from_object(Hardhat *self, PyObject *keyobject, 
 	if(key_buffer.len > UINT16_MAX)
 		PyErr_SetString(PyExc_KeyError, "supplied key too long");
 	else
-		cursor = Hardhat_cursor(self, key_buffer.buf, key_buffer.len, recursive, keys, values, initial);
+		cursor = Hardhat_cursor(self, key_buffer.buf, (uint16_t)key_buffer.len, recursive, keys, values, initial);
 
 	PyBuffer_Release(&key_buffer);
 
@@ -232,45 +239,66 @@ static PyObject *Hardhat_cursor_from_object(Hardhat *self, PyObject *keyobject, 
 
 // Hardhat methods
 
-static PyObject *Hardhat_ls(Hardhat *self, PyObject *args, PyObject *kwargs) {
+static PyObject *Hardhat_ls(PyObject *obj, PyObject *args, PyObject *kwargs) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	PyObject *keyobject;
 	int parent = 0;
-	static char *keywords[] = {"", "parent", NULL};
+	char keyword_empty[] = "";
+	char keyword_parent[] = "parent";
+	char *keywords[] = {keyword_empty, keyword_parent, NULL};
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$p", keywords, &keyobject, &parent))
 		return NULL;
 	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, false, true, true, parent);
 }
 
-static PyObject *Hardhat_find(Hardhat *self, PyObject *args, PyObject *kwargs) {
+static PyObject *Hardhat_find(PyObject *obj, PyObject *args, PyObject *kwargs) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	PyObject *keyobject;
 	int parent = 1;
-	static char *keywords[] = {"", "parent", NULL};
+	char keyword_empty[] = "";
+	char keyword_parent[] = "parent";
+	char *keywords[] = {keyword_empty, keyword_parent, NULL};
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$p", keywords, &keyobject, &parent))
 		return NULL;
 	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, true, true, true, parent);
 }
 
-static PyObject *Hardhat_keys(Hardhat *self, PyObject *dummy) {
+static PyObject *Hardhat_keys(PyObject *obj, PyObject *noargs) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, true, false, true);
 }
 
-static PyObject *Hardhat_values(Hardhat *self, PyObject *dummy) {
+static PyObject *Hardhat_values(PyObject *obj, PyObject *noargs) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, false, true, true);
 }
 
-static PyObject *Hardhat_items(Hardhat *self, PyObject *dummy) {
+static PyObject *Hardhat_items(PyObject *obj, PyObject *noargs) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
+		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, true, true, true);
 }
 
-static PyObject *Hardhat_enter(Hardhat *self, PyObject *dummy) {
-	if(!Hardhat_check(self))
+static PyObject *Hardhat_enter(PyObject *obj, PyObject *noargs) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	Py_IncRef(&self->ob_base);
 	return &self->ob_base;
 }
 
-static PyObject *Hardhat_exit(Hardhat *self, PyObject *args, PyObject *kwds) {
-	if(!Hardhat_check(self))
+static PyObject *Hardhat_exit(PyObject *obj, PyObject *args) {
+	Hardhat *self = Hardhat_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 	Py_RETURN_NONE;
 }
@@ -278,11 +306,11 @@ static PyObject *Hardhat_exit(Hardhat *self, PyObject *args, PyObject *kwds) {
 static PyMethodDef Hardhat_methods[] = {
 	{"ls", (PyCFunction)Hardhat_ls, METH_VARARGS|METH_KEYWORDS, "return a non-recursive iterator"},
 	{"find", (PyCFunction)Hardhat_find, METH_VARARGS|METH_KEYWORDS, "return a recursive iterator"},
-	{"keys", (PyCFunction)Hardhat_keys, METH_NOARGS, "iterator over all keys"},
-	{"values", (PyCFunction)Hardhat_values, METH_NOARGS, "iterator over all values"},
-	{"items", (PyCFunction)Hardhat_items, METH_NOARGS, "iterator over tuples of all keys and values"},
-	{"__enter__", (PyCFunction)Hardhat_enter, METH_NOARGS, "return a context manager for 'with'"},
-	{"__exit__", (PyCFunction)Hardhat_exit, METH_VARARGS, "callback for 'with' context manager"},
+	{"keys", Hardhat_keys, METH_NOARGS, "iterator over all keys"},
+	{"values", Hardhat_values, METH_NOARGS, "iterator over all values"},
+	{"items", Hardhat_items, METH_NOARGS, "iterator over tuples of all keys and values"},
+	{"__enter__", Hardhat_enter, METH_NOARGS, "return a context manager for 'with'"},
+	{"__exit__", Hardhat_exit, METH_VARARGS, "callback for 'with' context manager"},
 	{NULL}
 };
 
@@ -336,7 +364,7 @@ static PyMappingMethods Hardhat_as_mapping = {
 	.mp_subscript = (binaryfunc)Hardhat_getitem,
 };
 
-static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
+static PyObject *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
 	Hardhat *self = NULL;
 	PyObject *filename_object, *decoded_filename;
 	const char *filename;
@@ -345,12 +373,15 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwa
 #ifdef HAVE_HARDHAT_OPENAT
 	int dirfd = AT_FDCWD;
 
-	char *keywords[] = { "", "dir_fd", NULL };
+	char keyword_empty[] = "";
+	char keyword_dir_fd[] = "dir_fd";
+	char *keywords[] = {keyword_empty, keyword_dir_fd, NULL};
 
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$i:new", keywords, &filename_object, &dirfd))
 		return NULL;
 #else
-	char *keywords[] = { "", NULL };
+	char keyword_empty[] = "";
+	char *keywords[] = {keyword_empty, NULL};
 
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O:new", keywords, &filename_object))
 		return NULL;
@@ -390,35 +421,36 @@ static Hardhat *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwa
 		}
 	}
 
-	return self;
+	return &self->ob_base;
 }
 
-static void Hardhat_dealloc(Hardhat *self) {
-	if(Hardhat_check(self)) {
+static void Hardhat_dealloc(PyObject *obj) {
+	Hardhat *self = Hardhat_check(obj);
+	if(self) {
 		self->magic = 0;
 		Py_BEGIN_ALLOW_THREADS
 		hardhat_close(self->hh);
 		Py_END_ALLOW_THREADS
 	}
 
-	PyObject_Del(self);
+	PyObject_Del(obj);
 }
 
-static PyObject *Hardhat_iter(Hardhat *self) {
-	return Hardhat_items(self, NULL);
+static PyObject *Hardhat_iter(PyObject *obj) {
+	return Hardhat_items(obj, NULL);
 }
 
 static PyTypeObject Hardhat_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "hardhat.Hardhat",
 	.tp_basicsize = sizeof(Hardhat),
-	.tp_dealloc = (destructor)Hardhat_dealloc,
+	.tp_dealloc = Hardhat_dealloc,
 	.tp_as_mapping = &Hardhat_as_mapping,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
-	.tp_iter = (getiterfunc)Hardhat_iter,
+	.tp_iter = Hardhat_iter,
 	.tp_methods = Hardhat_methods,
 	.tp_getset = Hardhat_getset,
-	.tp_new = (newfunc)Hardhat_new,
+	.tp_new = Hardhat_new,
 };
 
 // HardhatCursor object protocol
@@ -428,7 +460,7 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 	if(HardhatCursor_check(self)) {
 		hhc = self->hhc;
 		if(hhc->data)
-			return PyBuffer_FillInfo(buffer, &self->hardhat->ob_base, (char *)hhc->data, hhc->datalen, 1, flags);
+			return PyBuffer_FillInfo(buffer, &self->hardhat->ob_base, FORCE_CAST(const void *, void *, hhc->data), hhc->datalen, 1, flags);
 		if(self->finished)
 			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 		else
@@ -590,18 +622,19 @@ static PyTypeObject HardhatCursor_type = {
 	.tp_getset = HardhatCursor_getset,
 };
 
-static PyObject *HardhatMaker_add(HardhatMaker *self, PyObject *args, PyObject *kwds) {
+static PyObject *HardhatMaker_add(PyObject *obj, PyObject *args) {
 	PyObject *key_object, *value_object, *ret = NULL;
 	Py_buffer key_buffer, value_buffer;
 	hardhat_maker_t *hhm;
 	bool ok = false;
 	DECLARE_THREAD_SAVE
 
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
+		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
+
 	if(!PyArg_ParseTuple(args, "OO:add", &key_object, &value_object))
 		return NULL;
-
-	if(!HardhatMaker_check(self))
-		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
 	if(hardhat_module_object_to_buffer(key_object, &key_buffer)) {
 		if(hardhat_module_object_to_buffer(value_object, &value_buffer)) {
@@ -609,17 +642,17 @@ static PyObject *HardhatMaker_add(HardhatMaker *self, PyObject *args, PyObject *
 				PyErr_Format(PyExc_ValueError, "key is too long (%zd > %llu)",
 					key_buffer.len, (unsigned long long)UINT16_MAX);
 			} else {
-				if(value_buffer.len > INT32_MAX) {
+				if(value_buffer.len > UINT32_MAX) {
 					PyErr_Format(PyExc_ValueError, "value is too long (%zd > %llu)",
-						value_buffer.len, (unsigned long long)INT32_MAX);
+						value_buffer.len, (unsigned long long)UINT32_MAX);
 				} else {
 					Py_UNBLOCK_THREADS
 					if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
 						hhm = self->hhm;
 						if(hhm) {
 							ok = hardhat_maker_add(hhm,
-								key_buffer.buf, key_buffer.len,
-								value_buffer.buf, value_buffer.len);
+								key_buffer.buf, (uint16_t)key_buffer.len,
+								value_buffer.buf, (uint32_t)value_buffer.len);
 							Py_BLOCK_THREADS
 							if(ok) {
 								ret = Py_None;
@@ -654,27 +687,27 @@ static PyObject *HardhatMaker_add(HardhatMaker *self, PyObject *args, PyObject *
 	return ret;
 }
 
-static PyObject *HardhatMaker_parents(HardhatMaker *self, PyObject *value_object) {
+static PyObject *HardhatMaker_parents(PyObject *obj, PyObject *value_object) {
 	PyObject *ret = NULL;
 	Py_buffer value_buffer;
 	hardhat_maker_t *hhm;
 	bool ok = false;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
 	if(hardhat_module_object_to_buffer(value_object, &value_buffer)) {
-		if(value_buffer.len > INT32_MAX) {
+		if(value_buffer.len > UINT32_MAX) {
 			PyErr_Format(PyExc_ValueError, "value is too long (%zd > %llu)",
-				value_buffer.len, (unsigned long long)INT32_MAX);
+				value_buffer.len, (unsigned long long)UINT32_MAX);
 		} else {
 			Py_UNBLOCK_THREADS
 			if(PyThread_acquire_lock(self->lock, WAIT_LOCK) == PY_LOCK_ACQUIRED) {
 				hhm = self->hhm;
 				if(hhm) {
-					ok = hardhat_maker_parents(hhm,
-						value_buffer.buf, value_buffer.len);
+					ok = hardhat_maker_parents(hhm, value_buffer.buf, (uint32_t)value_buffer.len);
 					Py_BLOCK_THREADS
 					if(ok) {
 						ret = Py_None;
@@ -707,12 +740,13 @@ static PyObject *HardhatMaker_parents(HardhatMaker *self, PyObject *value_object
 	return ret;
 }
 
-static PyObject *HardhatMaker_close(HardhatMaker *self, PyObject *dummy) {
+static PyObject *HardhatMaker_close(PyObject *obj, PyObject *noargs) {
 	hardhat_maker_t *hhm;
 	bool ok = false;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
 	Py_UNBLOCK_THREADS
@@ -748,19 +782,21 @@ static PyObject *HardhatMaker_close(HardhatMaker *self, PyObject *dummy) {
 		return NULL;
 }
 
-static PyObject *HardhatMaker_enter(HardhatMaker *self, PyObject *dummy) {
-	if(!HardhatMaker_check(self))
+static PyObject *HardhatMaker_enter(PyObject *obj, PyObject *noargs) {
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 	Py_IncRef(&self->ob_base);
 	return &self->ob_base;
 }
 
-static PyObject *HardhatMaker_exit(HardhatMaker *self, PyObject *args, PyObject *kwds) {
+static PyObject *HardhatMaker_exit(PyObject *obj, PyObject *args) {
 	hardhat_maker_t *hhm;
 	bool ok = false;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
 	Py_UNBLOCK_THREADS
@@ -794,21 +830,22 @@ static PyObject *HardhatMaker_exit(HardhatMaker *self, PyObject *args, PyObject 
 }
 
 static PyMethodDef HardhatMaker_methods[] = {
-	{"add", (PyCFunction)HardhatMaker_add, METH_VARARGS, "add an entry to the hardhat database"},
-	{"parents", (PyCFunction)HardhatMaker_parents, METH_O, "add intermediate keys to the database"},
-	{"close", (PyCFunction)HardhatMaker_close, METH_NOARGS, "finish and close the database"},
-	{"__enter__", (PyCFunction)HardhatMaker_enter, METH_NOARGS, "return a context manager for 'with'"},
+	{"add", HardhatMaker_add, METH_VARARGS, "add an entry to the hardhat database"},
+	{"parents", HardhatMaker_parents, METH_O, "add intermediate keys to the database"},
+	{"close", HardhatMaker_close, METH_NOARGS, "finish and close the database"},
+	{"__enter__", HardhatMaker_enter, METH_NOARGS, "return a context manager for 'with'"},
 	{"__exit__", (PyCFunction)HardhatMaker_exit, METH_VARARGS, "callback for 'with' context manager"},
 	{NULL}
 };
 
 #ifdef HAVE_HARDHAT_MAKER_ALIGNMENT
-static PyObject *HardhatMaker_get_alignment(HardhatMaker *self, void *userdata) {
+static PyObject *HardhatMaker_get_alignment(PyObject *obj, void *userdata) {
 	hardhat_maker_t *hhm;
 	uint64_t alignment;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
 	Py_UNBLOCK_THREADS
@@ -833,13 +870,14 @@ static PyObject *HardhatMaker_get_alignment(HardhatMaker *self, void *userdata) 
 	}
 }
 
-static int HardhatMaker_set_alignment(HardhatMaker *self, PyObject *value, void *userdata) {
+static int HardhatMaker_set_alignment(PyObject *obj, PyObject *value, void *userdata) {
 	hardhat_maker_t *hhm;
 	uint64_t alignment;
 	unsigned PY_LONG_LONG upll;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), -1;
 
 	PyErr_Clear();
@@ -873,12 +911,13 @@ static int HardhatMaker_set_alignment(HardhatMaker *self, PyObject *value, void 
 #endif
 
 #ifdef HAVE_HARDHAT_MAKER_BLOCKSIZE
-static PyObject *HardhatMaker_get_blocksize(HardhatMaker *self, void *userdata) {
+static PyObject *HardhatMaker_get_blocksize(PyObject *obj, void *userdata) {
 	hardhat_maker_t *hhm;
 	uint64_t blocksize;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), NULL;
 
 	Py_UNBLOCK_THREADS
@@ -904,13 +943,14 @@ static PyObject *HardhatMaker_get_blocksize(HardhatMaker *self, void *userdata) 
 }
 
 
-static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void *userdata) {
+static int HardhatMaker_set_blocksize(PyObject *obj, PyObject *value, void *userdata) {
 	hardhat_maker_t *hhm;
 	uint64_t blocksize;
 	unsigned PY_LONG_LONG upll;
 	DECLARE_THREAD_SAVE
 
-	if(!HardhatMaker_check(self))
+	HardhatMaker *self = HardhatMaker_check(obj);
+	if(!self)
 		return PyErr_SetString(PyExc_TypeError, "not a valid HardhatMaker object"), -1;
 
 	PyErr_Clear();
@@ -945,10 +985,10 @@ static int HardhatMaker_set_blocksize(HardhatMaker *self, PyObject *value, void 
 
 static PyGetSetDef HardhatMaker_getset[] = {
 #ifdef HAVE_HARDHAT_MAKER_ALIGNMENT
-	{"alignment", (getter)HardhatMaker_get_alignment, (setter)HardhatMaker_set_alignment, "the alignment of values", NULL},
+	{"alignment", HardhatMaker_get_alignment, HardhatMaker_set_alignment, "the alignment of values", NULL},
 #endif
 #ifdef HAVE_HARDHAT_MAKER_BLOCKSIZE
-	{"blocksize", (getter)HardhatMaker_get_blocksize, (setter)HardhatMaker_set_blocksize, "the assumed block size", NULL},
+	{"blocksize", HardhatMaker_get_blocksize, HardhatMaker_set_blocksize, "the assumed block size", NULL},
 #endif
 	{NULL}
 };
@@ -957,14 +997,17 @@ static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyO
 	PyObject *filename_object;
 
 #ifdef HAVE_HARDHAT_MAKER_NEWAT
-	char *keywords[] = { "", "mode", "dir_fd", NULL };
+	char keyword_empty[] = "";
+	char keyword_dir_fd[] = "dir_fd";
+	char *keywords[] = {keyword_empty, keyword_dir_fd, NULL};
 
 	int dirfd = AT_FDCWD;
 	int mode = 0666;
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ii:new", keywords, &filename_object, &mode, &dirfd))
 		return NULL;
 #else
-	char *keywords[] = { "", NULL };
+	char keyword_empty[] = "";
+	char *keywords[] = {keyword_empty, NULL};
 
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O:new", keywords, &filename_object))
 		return NULL;
@@ -1044,7 +1087,7 @@ static PyObject *hardhat_module_normalize(PyObject *self, PyObject *obj) {
 	result = PyBytes_FromStringAndSize(NULL, buffer.len);
 	if(result && buffer.len)
 		_PyBytes_Resize(&result,
-			hardhat_normalize(PyBytes_AS_STRING(result), buffer.buf, buffer.len));
+			(Py_ssize_t)hardhat_normalize(PyBytes_AS_STRING(result), buffer.buf, (size_t)buffer.len));
 
 	PyBuffer_Release(&buffer);
 
@@ -1065,6 +1108,7 @@ static struct PyModuleDef hardhat_module = {
 	.m_methods = hardhat_module_functions,
 };
 
+PyMODINIT_FUNC PyInit_hardhat(void);
 PyMODINIT_FUNC PyInit_hardhat(void) {
 	if(PyType_Ready(&Hardhat_type) == -1)
 		return NULL;
