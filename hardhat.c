@@ -10,6 +10,9 @@
 #include <hardhat/reader.h>
 #include <hardhat/maker.h>
 
+//define CAST_PYCFUNCTION(f) (((union { PyCFunction pycf; PyObject *(*pycfv)(PyObject *, PyObject *, PyObject *); }){.pycfv = (f)}).pycf)
+#define CAST_PYCFUNCTION(f) ((PyCFunction)f)
+
 typedef struct {
 	PyObject_HEAD
 	uint64_t magic;
@@ -63,16 +66,16 @@ static PyTypeObject HardhatMaker_type;
 #define DECLARE_THREAD_SAVE
 #endif
 
-static inline Hardhat *Hardhat_check(void *v) {
-	return v && PyObject_TypeCheck(v, &Hardhat_type) && ((Hardhat *)v)->magic == HARDHAT_MAGIC ? v : NULL;
+static inline Hardhat *Hardhat_check(PyObject *v) {
+	return v && PyObject_TypeCheck(v, &Hardhat_type) && ((Hardhat *)v)->magic == HARDHAT_MAGIC ? (Hardhat *)v : NULL;
 }
 
-static inline HardhatCursor *HardhatCursor_check(void *v) {
-	return v && PyObject_TypeCheck(v, &HardhatCursor_type) && ((HardhatCursor *)v)->magic == HARDHAT_CURSOR_MAGIC ? v : NULL;
+static inline HardhatCursor *HardhatCursor_check(PyObject *v) {
+	return v && PyObject_TypeCheck(v, &HardhatCursor_type) && ((HardhatCursor *)v)->magic == HARDHAT_CURSOR_MAGIC ? (HardhatCursor *)v : NULL;
 }
 
-static inline HardhatMaker *HardhatMaker_check(void *v) {
-	return v && PyObject_TypeCheck(v, &HardhatMaker_type) && ((HardhatMaker *)v)->magic == HARDHAT_MAKER_MAGIC ? v : NULL;
+static inline HardhatMaker *HardhatMaker_check(PyObject *v) {
+	return v && PyObject_TypeCheck(v, &HardhatMaker_type) && ((HardhatMaker *)v)->magic == HARDHAT_MAKER_MAGIC ? (HardhatMaker *)v : NULL;
 }
 
 // hardhat module utility functions
@@ -148,7 +151,6 @@ static PyObject *hardhat_module_filename(PyObject *filename_object) {
 }
 
 static bool hardhat_module_object_to_buffer(PyObject *obj, Py_buffer *buffer) {
-
 	if(PyUnicode_Check(obj)) {
 		Py_ssize_t len;
 		char *str = FORCE_CAST(const char *, char *, PyUnicode_AsUTF8AndSize(obj, &len));
@@ -165,6 +167,7 @@ static bool hardhat_module_object_to_buffer(PyObject *obj, Py_buffer *buffer) {
 			return false;
 		}
 	}
+
 	return true;
 }
 
@@ -184,22 +187,23 @@ static bool hardhat_module_lock(PyThread_type_lock lock) {
 
 // Hardhat class utility functions for methods
 
-static PyObject *Hardhat_cursor(Hardhat *self, void *buf, uint16_t len, bool recursive, bool keys, bool values, bool initial) {
+static HardhatCursor *Hardhat_cursor(PyObject *self, void *buf, uint16_t len, bool recursive, bool keys, bool values, bool initial) {
 	hardhat_cursor_t *c;
 	HardhatCursor *cursor;
 
-	if(!Hardhat_check(self))
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 
 	Py_BEGIN_ALLOW_THREADS
-	c = hardhat_cursor(self->hh, buf, len);
+	c = hardhat_cursor(hardhat->hh, buf, len);
 	Py_END_ALLOW_THREADS
 
 	if(c) {
 		cursor = PyObject_New(HardhatCursor, &HardhatCursor_type);
 		if(cursor) {
-			Py_IncRef(&self->ob_base);
-			cursor->hardhat = self;
+			Py_IncRef(&hardhat->ob_base);
+			cursor->hardhat = hardhat;
 			cursor->hhc = c;
 			cursor->recursive = recursive;
 			cursor->keys = keys;
@@ -207,7 +211,7 @@ static PyObject *Hardhat_cursor(Hardhat *self, void *buf, uint16_t len, bool rec
 			cursor->initial = initial;
 			cursor->finished = false;
 			cursor->magic = HARDHAT_CURSOR_MAGIC;
-			return &cursor->ob_base;
+			return cursor;
 		}
 		hardhat_cursor_free(c);
 	} else {
@@ -217,9 +221,9 @@ static PyObject *Hardhat_cursor(Hardhat *self, void *buf, uint16_t len, bool rec
 	return NULL;
 }
 
-static PyObject *Hardhat_cursor_from_object(Hardhat *self, PyObject *keyobject, bool recursive, bool keys, bool values, bool initial) {
+static HardhatCursor *Hardhat_cursor_from_object(PyObject *self, PyObject *keyobject, bool recursive, bool keys, bool values, bool initial) {
 	Py_buffer key_buffer;
-	PyObject *cursor = NULL;
+	HardhatCursor *cursor = NULL;
 
 	if(!hardhat_module_object_to_buffer(keyobject, &key_buffer))
 		return NULL;
@@ -236,10 +240,11 @@ static PyObject *Hardhat_cursor_from_object(Hardhat *self, PyObject *keyobject, 
 
 // Hardhat methods
 
-static PyObject *Hardhat_ls(PyObject *obj, PyObject *args, PyObject *kwargs) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
+static PyObject *Hardhat_ls(PyObject *self, PyObject *args, PyObject *kwargs) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
+
 	PyObject *keyobject;
 	int parent = 0;
 	char keyword_empty[] = "";
@@ -247,62 +252,59 @@ static PyObject *Hardhat_ls(PyObject *obj, PyObject *args, PyObject *kwargs) {
 	char *keywords[] = {keyword_empty, keyword_parent, NULL};
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$p", keywords, &keyobject, &parent))
 		return NULL;
-	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, false, true, true, parent);
+
+	return &Hardhat_cursor_from_object(self, keyobject, false, true, true, parent)->ob_base;
 }
 
-static PyObject *Hardhat_find(PyObject *obj, PyObject *args, PyObject *kwargs) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
+static PyObject *Hardhat_find(PyObject *self, PyObject *args, PyObject *kwargs) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	PyObject *keyobject;
+
+	PyObject *keyobject = NULL;
 	int parent = 1;
 	char keyword_empty[] = "";
 	char keyword_parent[] = "parent";
 	char *keywords[] = {keyword_empty, keyword_parent, NULL};
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$p", keywords, &keyobject, &parent))
 		return NULL;
-	return (PyObject *)Hardhat_cursor_from_object(self, keyobject, true, true, true, parent);
+
+	return &Hardhat_cursor_from_object(self, keyobject, true, true, true, parent)->ob_base;
 }
 
-static PyObject *Hardhat_keys(PyObject *obj, PyObject *noargs) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
+static PyObject *Hardhat_keys(PyObject *self, PyObject *noargs) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, true, false, true);
+	return &Hardhat_cursor(self, NULL, 0, true, true, false, true)->ob_base;
 }
 
-static PyObject *Hardhat_values(PyObject *obj, PyObject *noargs) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
+static PyObject *Hardhat_values(PyObject *self, PyObject *noargs) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, false, true, true);
+	return &Hardhat_cursor(self, NULL, 0, true, false, true, true)->ob_base;
 }
 
-static PyObject *Hardhat_items(PyObject *obj, PyObject *noargs) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
+static PyObject *Hardhat_items(PyObject *self, PyObject *noargs) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	return (PyObject *)Hardhat_cursor(self, NULL, 0, true, true, true, true);
+	return &Hardhat_cursor(self, NULL, 0, true, true, true, true)->ob_base;
 }
 
-static PyObject *Hardhat_enter(PyObject *obj, PyObject *noargs) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
-		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	Py_IncRef(&self->ob_base);
-	return &self->ob_base;
+static PyObject *Hardhat_enter(PyObject *self, PyObject *noargs) {
+	Py_IncRef(self);
+	return self;
 }
 
-static PyObject *Hardhat_exit(PyObject *obj, PyObject *args) {
-	Hardhat *self = Hardhat_check(obj);
-	if(!self)
-		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
+static PyObject *Hardhat_exit(PyObject *self, PyObject *noargs) {
 	Py_RETURN_NONE;
 }
 
 static PyMethodDef Hardhat_methods[] = {
-	{"ls", (PyCFunction)Hardhat_ls, METH_VARARGS|METH_KEYWORDS, "return a non-recursive iterator"},
-	{"find", (PyCFunction)Hardhat_find, METH_VARARGS|METH_KEYWORDS, "return a recursive iterator"},
+	{"ls", CAST_PYCFUNCTION(Hardhat_ls), METH_VARARGS|METH_KEYWORDS, "return a non-recursive iterator"},
+	{"find", CAST_PYCFUNCTION(Hardhat_find), METH_VARARGS|METH_KEYWORDS, "return a recursive iterator"},
 	{"keys", Hardhat_keys, METH_NOARGS, "iterator over all keys"},
 	{"values", Hardhat_values, METH_NOARGS, "iterator over all values"},
 	{"items", Hardhat_items, METH_NOARGS, "iterator over tuples of all keys and values"},
@@ -312,53 +314,55 @@ static PyMethodDef Hardhat_methods[] = {
 };
 
 #ifdef HAVE_HARDHAT_ALIGNMENT
-static PyObject *Hardhat_get_alignment(Hardhat *self, void *userdata) {
-	if(!Hardhat_check(self))
+static PyObject *Hardhat_get_alignment(PyObject *self, void *userdata) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 
-	return PyLong_FromUnsignedLongLong(hardhat_alignment(self->hh));
+	return PyLong_FromUnsignedLongLong(hardhat_alignment(hardhat->hh));
 }
 #endif
 
 #ifdef HAVE_HARDHAT_BLOCKSIZE
-static PyObject *Hardhat_get_blocksize(Hardhat *self, void *userdata) {
-	if(!Hardhat_check(self))
+static PyObject *Hardhat_get_blocksize(PyObject *self, void *userdata) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(!hardhat)
 		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
 
-	return PyLong_FromUnsignedLongLong(hardhat_blocksize(self->hh));
+	return PyLong_FromUnsignedLongLong(hardhat_blocksize(hardhat->hh));
 }
 #endif
 
 static PyGetSetDef Hardhat_getset[] = {
 #ifdef HAVE_HARDHAT_ALIGNMENT
-	{"alignment", (getter)Hardhat_get_alignment, NULL, "the alignment of values", NULL},
+	{"alignment", Hardhat_get_alignment, NULL, "the alignment of values", NULL},
 #endif
 #ifdef HAVE_HARDHAT_BLOCKSIZE
-	{"blocksize", (getter)Hardhat_get_blocksize, NULL, "the assumed block size", NULL},
+	{"blocksize", Hardhat_get_blocksize, NULL, "the assumed block size", NULL},
 #endif
 	{NULL}
 };
 
 // Hardhat mapping functions
 
-static PyObject *Hardhat_getitem(Hardhat *self, PyObject *keyobject) {
-	PyObject *view = NULL;
-	HardhatCursor *cursor;
-	if(!Hardhat_check(self))
-		return PyErr_SetString(PyExc_TypeError, "not a valid Hardhat object"), NULL;
-	cursor = (HardhatCursor *)Hardhat_cursor_from_object(self, keyobject, false, false, true, true);
+static PyObject *Hardhat_getitem(PyObject *self, PyObject *keyobject) {
+	HardhatCursor *cursor = Hardhat_cursor_from_object(self, keyobject, false, false, true, true);
 	if(!cursor)
 		return NULL;
+
+	PyObject *view = NULL;
 	if(cursor->hhc->data)
 		view = PyMemoryView_FromObject(&cursor->ob_base);
 	else
 		PyErr_Format(PyExc_KeyError, "'%S'", keyobject);
+
 	Py_DecRef(&cursor->ob_base);
+
 	return view;
 }
 
 static PyMappingMethods Hardhat_as_mapping = {
-	.mp_subscript = (binaryfunc)Hardhat_getitem,
+	.mp_subscript = Hardhat_getitem,
 };
 
 static PyObject *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
@@ -421,16 +425,16 @@ static PyObject *Hardhat_new(PyTypeObject *subtype, PyObject *args, PyObject *kw
 	return &self->ob_base;
 }
 
-static void Hardhat_dealloc(PyObject *obj) {
-	Hardhat *self = Hardhat_check(obj);
-	if(self) {
-		self->magic = 0;
+static void Hardhat_dealloc(PyObject *self) {
+	Hardhat *hardhat = Hardhat_check(self);
+	if(hardhat) {
+		hardhat->magic = 0;
 		Py_BEGIN_ALLOW_THREADS
-		hardhat_close(self->hh);
+		hardhat_close(hardhat->hh);
 		Py_END_ALLOW_THREADS
 	}
 
-	PyObject_Del(obj);
+	PyObject_Del(self);
 }
 
 static PyObject *Hardhat_iter(PyObject *obj) {
@@ -452,13 +456,13 @@ static PyTypeObject Hardhat_type = {
 
 // HardhatCursor object protocol
 
-static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int flags) {
-	hardhat_cursor_t *hhc;
-	if(HardhatCursor_check(self)) {
-		hhc = self->hhc;
+static int HardhatCursor_getbuffer(PyObject *self, Py_buffer *buffer, int flags) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		hardhat_cursor_t *hhc = cursor->hhc;
 		if(hhc->data)
-			return PyBuffer_FillInfo(buffer, &self->hardhat->ob_base, FORCE_CAST(const void *, void *, hhc->data), hhc->datalen, 1, flags);
-		if(self->finished)
+			return PyBuffer_FillInfo(buffer, &cursor->hardhat->ob_base, FORCE_CAST(const void *, void *, hhc->data), hhc->datalen, 1, flags);
+		if(cursor->finished)
 			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 		else
 			PyErr_SetString(PyExc_KeyError, "no parent entry found");
@@ -470,16 +474,16 @@ static int HardhatCursor_getbuffer(HardhatCursor *self, Py_buffer *buffer, int f
 }
 
 static PyBufferProcs HardhatCursor_as_buffer = {
-	.bf_getbuffer = (getbufferproc)HardhatCursor_getbuffer,
+	.bf_getbuffer = HardhatCursor_getbuffer,
 };
 
-static PyObject *HardhatCursor_get_key(HardhatCursor *self, void *userdata) {
-	hardhat_cursor_t *hhc;
-	if(HardhatCursor_check(self)) {
-		hhc = self->hhc;
+static PyObject *HardhatCursor_get_key(PyObject *self, void *userdata) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		hardhat_cursor_t *hhc = cursor->hhc;
 		if(hhc->data)
 			return PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
-		if(self->finished)
+		if(cursor->finished)
 			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 		else
 			PyErr_SetString(PyExc_KeyError, "no parent entry found");
@@ -489,11 +493,12 @@ static PyObject *HardhatCursor_get_key(HardhatCursor *self, void *userdata) {
 	return NULL;
 }
 
-static PyObject *HardhatCursor_get_value(HardhatCursor *self, void *userdata) {
-	if(HardhatCursor_check(self)) {
-		if(self->hhc->data)
-			return PyMemoryView_FromObject(&self->ob_base);
-		if(self->finished)
+static PyObject *HardhatCursor_get_value(PyObject *self, void *userdata) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		if(cursor->hhc->data)
+			return PyMemoryView_FromObject(self);
+		if(cursor->finished)
 			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 		else
 			PyErr_SetString(PyExc_KeyError, "no parent entry found");
@@ -503,15 +508,15 @@ static PyObject *HardhatCursor_get_value(HardhatCursor *self, void *userdata) {
 	return NULL;
 }
 
-static PyObject *HardhatCursor_get_item(HardhatCursor *self, void *userdata) {
-	PyObject *keyobject, *valueobject, *tupleobject;
-	hardhat_cursor_t *hhc;
-	if(HardhatCursor_check(self)) {
-		hhc = self->hhc;
+static PyObject *HardhatCursor_get_item(PyObject *self, void *userdata) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		hardhat_cursor_t *hhc = cursor->hhc;
 		if(hhc->data) {
-			keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
+			PyObject *keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
 			if(keyobject) {
-				valueobject = PyMemoryView_FromObject(&self->ob_base);
+				PyObject *tupleobject;
+				PyObject *valueobject = PyMemoryView_FromObject(self);
 				if(valueobject) {
 					tupleobject = PyTuple_Pack(2, keyobject, valueobject);
 					Py_DecRef(valueobject);
@@ -522,7 +527,7 @@ static PyObject *HardhatCursor_get_item(HardhatCursor *self, void *userdata) {
 				return tupleobject;
 			}
 		} else {
-			if(self->finished)
+			if(cursor->finished)
 				PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 			else
 				PyErr_SetString(PyExc_KeyError, "no parent entry found");
@@ -533,13 +538,13 @@ static PyObject *HardhatCursor_get_item(HardhatCursor *self, void *userdata) {
 	return NULL;
 }
 
-static PyObject *HardhatCursor_get_inode(HardhatCursor *self, void *userdata) {
-	hardhat_cursor_t *hhc;
-	if(HardhatCursor_check(self)) {
-		hhc = self->hhc;
+static PyObject *HardhatCursor_get_inode(PyObject *self, void *userdata) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		hardhat_cursor_t *hhc = cursor->hhc;
 		if(hhc->data)
 			return PyLong_FromUnsignedLongLong(hhc->cur);
-		if(self->finished)
+		if(cursor->finished)
 			PyErr_SetString(PyExc_IndexError, "iterator already reached its end");
 		else
 			PyErr_SetString(PyExc_KeyError, "no parent entry found");
@@ -550,26 +555,26 @@ static PyObject *HardhatCursor_get_inode(HardhatCursor *self, void *userdata) {
 }
 
 static PyGetSetDef HardhatCursor_getset[] = {
-	{"key", (getter)HardhatCursor_get_key, NULL, "get the current key (bytes)", NULL},
-	{"value", (getter)HardhatCursor_get_value, NULL, "get the current value (memoryview)", NULL},
-	{"item", (getter)HardhatCursor_get_item, NULL, "get the current key and value (tuple)", NULL},
-	{"inode", (getter)HardhatCursor_get_inode, NULL, "get the current inode (int)", NULL},
+	{"key", HardhatCursor_get_key, NULL, "get the current key (bytes)", NULL},
+	{"value", HardhatCursor_get_value, NULL, "get the current value (memoryview)", NULL},
+	{"item", HardhatCursor_get_item, NULL, "get the current key and value (tuple)", NULL},
+	{"inode", HardhatCursor_get_inode, NULL, "get the current inode (int)", NULL},
 	{NULL}
 };
 
-static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
-	hardhat_cursor_t *hhc;
-	PyObject *keyobject, *valueobject, *tupleobject;
-	if(HardhatCursor_check(self)) {
-		hhc = self->hhc;
-		if(!self->finished && ((self->initial && hhc->data) || hardhat_fetch(hhc, self->recursive))) {
-			self->initial = false;
-			if(self->keys) {
-				keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
+static PyObject *HardhatCursor_iternext(PyObject *self) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		hardhat_cursor_t *hhc = cursor->hhc;
+		if(!cursor->finished && ((cursor->initial && hhc->data) || hardhat_fetch(hhc, cursor->recursive))) {
+			cursor->initial = false;
+			if(cursor->keys) {
+				PyObject *keyobject = PyBytes_FromStringAndSize(hhc->key, hhc->keylen);
 				if(!keyobject)
 					return NULL;
-				if(self->values) {
-					valueobject = PyMemoryView_FromObject(&self->ob_base);
+				if(cursor->values) {
+					PyObject *tupleobject;
+					PyObject *valueobject = PyMemoryView_FromObject(self);
 					if(valueobject) {
 						tupleobject = PyTuple_Pack(2, keyobject, valueobject);
 						Py_DecRef(valueobject);
@@ -582,14 +587,14 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 					return keyobject;
 				}
 			} else {
-				if(self->values)
-					return PyMemoryView_FromObject(&self->ob_base);
+				if(cursor->values)
+					return PyMemoryView_FromObject(self);
 				else
 					return PyErr_SetString(HARDHAT_INTERNAL_ERROR,
 						"internal error in HardhatCursor_iternext()"), NULL;
 			}
 		} else {
-			self->finished = true;
+			cursor->finished = true;
 		}
 	} else {
 		PyErr_SetString(PyExc_TypeError, "not a valid HardhatCursor object");
@@ -597,11 +602,12 @@ static PyObject *HardhatCursor_iternext(HardhatCursor *self) {
 	return NULL;
 }
 
-static void HardhatCursor_dealloc(HardhatCursor *self) {
-	if(HardhatCursor_check(self)) {
-		self->magic = 0;
-		hardhat_cursor_free(self->hhc);
-		Py_DecRef(&self->hardhat->ob_base);
+static void HardhatCursor_dealloc(PyObject *self) {
+	HardhatCursor *cursor = HardhatCursor_check(self);
+	if(cursor) {
+		cursor->magic = 0;
+		hardhat_cursor_free(cursor->hhc);
+		Py_DecRef(&cursor->hardhat->ob_base);
 	}
 
 	PyObject_Del(self);
@@ -611,11 +617,11 @@ static PyTypeObject HardhatCursor_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "hardhat.HardhatCursor",
 	.tp_basicsize = sizeof(HardhatCursor),
-	.tp_dealloc = (destructor)HardhatCursor_dealloc,
+	.tp_dealloc = HardhatCursor_dealloc,
 	.tp_as_buffer = &HardhatCursor_as_buffer,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_iter = PyObject_SelfIter,
-	.tp_iternext = (iternextfunc)HardhatCursor_iternext,
+	.tp_iternext = HardhatCursor_iternext,
 	.tp_getset = HardhatCursor_getset,
 };
 
@@ -831,7 +837,7 @@ static PyMethodDef HardhatMaker_methods[] = {
 	{"parents", HardhatMaker_parents, METH_O, "add intermediate keys to the database"},
 	{"close", HardhatMaker_close, METH_NOARGS, "finish and close the database"},
 	{"__enter__", HardhatMaker_enter, METH_NOARGS, "return a context manager for 'with'"},
-	{"__exit__", (PyCFunction)HardhatMaker_exit, METH_VARARGS, "callback for 'with' context manager"},
+	{"__exit__", HardhatMaker_exit, METH_VARARGS, "callback for 'with' context manager"},
 	{NULL}
 };
 
@@ -990,14 +996,13 @@ static PyGetSetDef HardhatMaker_getset[] = {
 	{NULL}
 };
 
-static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
-	PyObject *filename_object;
-
+static PyObject *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
 #ifdef HAVE_HARDHAT_MAKER_NEWAT
 	char keyword_empty[] = "";
 	char keyword_dir_fd[] = "dir_fd";
 	char *keywords[] = {keyword_empty, keyword_dir_fd, NULL};
 
+	PyObject *filename_object;
 	int dirfd = AT_FDCWD;
 	int mode = 0666;
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ii:new", keywords, &filename_object, &mode, &dirfd))
@@ -1026,13 +1031,13 @@ static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyO
 				Py_END_ALLOW_THREADS
 
 				if(hhm) {
-					HardhatMaker *self = PyObject_New(HardhatMaker, subtype);
-					if(self) {
-						self->magic = HARDHAT_MAKER_MAGIC;
-						self->hhm = hhm;
-						self->lock = lock;
+					HardhatMaker *maker = PyObject_New(HardhatMaker, subtype);
+					if(maker) {
+						maker->magic = HARDHAT_MAKER_MAGIC;
+						maker->hhm = hhm;
+						maker->lock = lock;
 						Py_DecRef(decoded_filename);
-						return self;
+						return &maker->ob_base;
 					}
 				} else {
 					PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, filename_object);
@@ -1046,14 +1051,15 @@ static HardhatMaker *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyO
 	return NULL;
 }
 
-static void HardhatMaker_dealloc(HardhatMaker *self) {
-	if(HardhatMaker_check(self)) {
-		self->magic = 0;
+static void HardhatMaker_dealloc(PyObject *self) {
+	HardhatMaker *maker = HardhatMaker_check(self);
+	if(maker) {
+		maker->magic = 0;
 		Py_BEGIN_ALLOW_THREADS
-		PyThread_acquire_lock(self->lock, NOWAIT_LOCK);
-		hardhat_maker_free(self->hhm);
+		PyThread_acquire_lock(maker->lock, NOWAIT_LOCK);
+		hardhat_maker_free(maker->hhm);
 		Py_END_ALLOW_THREADS
-		PyThread_free_lock(self->lock);
+		PyThread_free_lock(maker->lock);
 	}
 
 	PyObject_Del(self);
@@ -1063,11 +1069,11 @@ static PyTypeObject HardhatMaker_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "hardhat.HardhatMaker",
 	.tp_basicsize = sizeof(HardhatMaker),
-	.tp_dealloc = (destructor)HardhatMaker_dealloc,
+	.tp_dealloc = HardhatMaker_dealloc,
 	.tp_flags = Py_TPFLAGS_DEFAULT,
 	.tp_methods = HardhatMaker_methods,
 	.tp_getset = HardhatMaker_getset,
-	.tp_new = (newfunc)HardhatMaker_new,
+	.tp_new = HardhatMaker_new,
 };
 
 // Hardhat module functions
