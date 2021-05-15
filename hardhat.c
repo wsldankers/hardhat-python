@@ -997,10 +997,11 @@ static PyGetSetDef HardhatMaker_getset[] = {
 };
 
 static PyObject *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObject *kwargs) {
-#ifdef HAVE_HARDHAT_MAKER_NEWAT
 	char keyword_empty[] = "";
+#ifdef HAVE_HARDHAT_MAKER_NEWAT
+	char keyword_mode[] = "mode";
 	char keyword_dir_fd[] = "dir_fd";
-	char *keywords[] = {keyword_empty, keyword_dir_fd, NULL};
+	char *keywords[] = {keyword_empty, keyword_mode, keyword_dir_fd, NULL};
 
 	PyObject *filename_object;
 	int dirfd = AT_FDCWD;
@@ -1008,7 +1009,6 @@ static PyObject *HardhatMaker_new(PyTypeObject *subtype, PyObject *args, PyObjec
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ii:new", keywords, &filename_object, &mode, &dirfd))
 		return NULL;
 #else
-	char keyword_empty[] = "";
 	char *keywords[] = {keyword_empty, NULL};
 
 	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "O:new", keywords, &filename_object))
